@@ -1,4 +1,4 @@
-export default async function Home() {
+export async function GET() {
   const res = await fetch(
     'https://api.github.com/repos/Selva-kumar-K/reviewflow/pulls?state=all',
     {
@@ -16,5 +16,5 @@ export default async function Home() {
     title: pr.title,
   }));
 
-  return <pre>{JSON.stringify(prs, null, 2)}</pre>;
+  return Response.json(prs);
 }

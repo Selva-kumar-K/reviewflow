@@ -1,20 +1,13 @@
+import { getPullRequests } from '@/lib/github';
+import { PrList } from '@/components/PrList';
+
 export default async function Home() {
-  const res = await fetch(
-    'https://api.github.com/repos/Selva-kumar-K/reviewflow/pulls?state=all',
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-        Accept: 'application/vnd.github.v3+json',
-      },
-      cache: 'no-store',
-    }
+  const prs = await getPullRequests();
+
+  return (
+    <main className="mx-auto w-full max-w-3xl px-4 py-10">
+      <h1 className="text-xl font-semibold">Pull Requests</h1>
+      <PrList prs={prs} />
+    </main>
   );
-
-  const pulls = await res.json();
-  const prs = pulls.map((pr: { number: number; title: string }) => ({
-    number: pr.number,
-    title: pr.title,
-  }));
-
-  return <pre>{JSON.stringify(prs, null, 2)}</pre>;
 }

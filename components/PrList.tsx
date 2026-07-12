@@ -50,6 +50,65 @@ function formatDate(iso: string) {
   });
 }
 
+type SummaryState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'done'; summary: string };
+
+function SummaryPanel({ pr }: { pr: PullRequest }) {
+  const [state, setState] = useState<SummaryState>({ status: 'idle' });
+
+  async function handleSummarize() {
+    setState({ status: 'loading' });
+    try {
+      const res = await fetch(`/api/prs/${pr.number}/summary`);
+      if (!res.ok) throw new Error('Request failed');
+      const data: { summary: string } = await res.json();
+      setState({ status: 'done', summary: data.summary });
+    } catch {
+      setState({ status: 'error' });
+    }
+  }
+
+  if (state.status === 'idle') {
+    return (
+      <button
+        type="button"
+        onClick={handleSummarize}
+        className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+      >
+        Summarize
+      </button>
+    );
+  }
+
+  if (state.status === 'loading') {
+    return (
+      <p className="text-sm text-black/60 dark:text-white/60">Summarizing…</p>
+    );
+  }
+
+  if (state.status === 'error') {
+    return (
+      <p className="text-sm text-red-600 dark:text-red-400">
+        Couldn&apos;t summarize this PR.{' '}
+        <button
+          type="button"
+          onClick={handleSummarize}
+          className="font-medium hover:underline"
+        >
+          Retry
+        </button>
+      </p>
+    );
+  }
+
+  return (
+    <p className="text-sm text-black/80 dark:text-white/80">{state.summary}</p>
+  );
+}
+
 export function PrList({ prs }: { prs: PullRequest[] }) {
   const [filter, setFilter] = useState<Filter>('all');
   const filteredPrs = prs.filter((pr) => matchesFilter(pr, filter));
@@ -74,28 +133,33 @@ export function PrList({ prs }: { prs: PullRequest[] }) {
       </div>
       <ul className="mt-6 divide-y divide-black/10 dark:divide-white/10">
         {filteredPrs.map((pr) => (
-          <li key={pr.number} className="flex items-center gap-3 py-4">
-            <Image
-              src={pr.authorAvatarUrl}
-              alt={pr.author}
-              width={32}
-              height={32}
-              className="h-8 w-8 rounded-full"
-            />
-            <div className="min-w-0 flex-1">
-              <a
-                href={pr.url}
-                target="_blank"
-                rel="noreferrer"
-                className="truncate font-medium hover:underline"
-              >
-                {pr.title}
-              </a>
-              <p className="text-sm text-black/60 dark:text-white/60">
-                #{pr.number} opened by {pr.author} on {formatDate(pr.createdAt)}
-              </p>
+          <li key={pr.number} className="py-4">
+            <div className="flex items-center gap-3">
+              <Image
+                src={pr.authorAvatarUrl}
+                alt={pr.author}
+                width={32}
+                height={32}
+                className="h-8 w-8 rounded-full"
+              />
+              <div className="min-w-0 flex-1">
+                <a
+                  href={pr.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="truncate font-medium hover:underline"
+                >
+                  {pr.title}
+                </a>
+                <p className="text-sm text-black/60 dark:text-white/60">
+                  #{pr.number} opened by {pr.author} on {formatDate(pr.createdAt)}
+                </p>
+              </div>
+              <StatusBadge pr={pr} />
             </div>
-            <StatusBadge pr={pr} />
+            <div className="mt-2 pl-11">
+              <SummaryPanel pr={pr} />
+            </div>
           </li>
         ))}
       </ul>

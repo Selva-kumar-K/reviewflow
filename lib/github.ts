@@ -49,3 +49,24 @@ export const getPullRequests = cache(async (): Promise<PullRequest[]> => {
     url: pr.html_url,
   }));
 });
+
+export const getPullRequestDiff = cache(
+  async (number: number): Promise<string> => {
+    const res = await fetch(
+      `https://api.github.com/repos/Selva-kumar-K/reviewflow/pulls/${number}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+          Accept: "application/vnd.github.v3.diff",
+        },
+        cache: "no-store",
+      },
+    );
+
+    if (!res.ok) {
+      throw new Error(`GitHub API error: ${res.status} ${res.statusText}`);
+    }
+
+    return res.text();
+  },
+);

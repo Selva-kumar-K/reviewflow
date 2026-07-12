@@ -42,7 +42,7 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
 - Claude API — PR diff summarization (not yet added; mock first, see above)
 - Vercel — deployment (not yet done)
 
-## Current progress (as of 2026-07-11)
+## Current progress (as of 2026-07-12)
 - `lib/github.ts` — `getPullRequests()`, a `cache()`-wrapped fetch against the
   GitHub REST API. Maps the raw GitHub response (`GitHubPullRequest`) into a
   clean `PullRequest` type: `number`, `title`, `author`, `authorAvatarUrl`,
@@ -62,6 +62,32 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   `avatars.githubusercontent.com` so `next/image` can optimize GitHub avatars.
 - Verified end-to-end against the real GitHub API and real repo data; filter
   buttons confirmed working in the browser.
+- `lib/summarize.ts` — `summarizePR(diff: string): Promise<string>` mock. Adds
+  an 800ms fake delay (so loading states have to be handled honestly) and
+  picks from a small list of canned summaries deterministically, keyed by
+  `diff.length`, so re-summarizing the same PR is stable rather than random.
+  No real Claude API call — signature matches what the real call will need,
+  so swapping it in later is a one-line change inside this file only.
+- `lib/github.ts` — added `getPullRequestDiff(number)`, `cache()`-wrapped like
+  `getPullRequests()`. Hits the same single-PR GitHub endpoint but with
+  `Accept: application/vnd.github.v3.diff` instead of the JSON accept header,
+  and returns `res.text()` (a raw diff string) instead of parsed JSON.
+- `app/api/prs/[number]/summary/route.ts` — new dynamic API route. `GET`
+  handler awaits `params` (async in this Next version), calls
+  `getPullRequestDiff` then `summarizePR`, returns `{ summary }` as JSON. This
+  route is the boundary Client Components fetch through, since
+  `getPullRequestDiff` needs `GITHUB_TOKEN` and can't run in the browser.
+- `components/PrList.tsx` — added `SummaryPanel`, a per-row Client Component
+  with its own `useState<SummaryState>` (`idle` / `loading` / `error` /
+  `done`), so one PR's summary loading/error doesn't affect any other row.
+  Renders a "Summarize" button that fetches `/api/prs/{number}/summary`, shows
+  "Summarizing…" while pending, the summary text on success, and a "Retry"
+  link on failure.
+- Verified via direct HTTP calls (`Invoke-RestMethod`) against the running dev
+  server: `/api/prs/1/summary` returns a real-diff-derived mock summary; the
+  "Summarize" button confirmed present in rendered HTML. Not yet click-tested
+  in an actual browser (Chrome extension wasn't connected this session) — do
+  a manual click-through next session to eyeball the loading/result states.
 
 ### Concepts covered so far
 - Server vs Client Components in the App Router: Server Components run only on
@@ -69,15 +95,23 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   (`"use client"`) are the opt-in needed for `useState`/event handlers, and
   should be small leaves fed by props from a Server Component parent, not the
   whole page.
+- Dynamic API routes (`[number]` folder segments) as the secret-safe boundary
+  between a Client Component and server-only data/env vars — the client can't
+  call `getPullRequestDiff` directly, so it fetches a route that calls it.
+- Per-item async state in a list: one `useState` per rendered `SummaryPanel`
+  row, keyed by nothing more than component identity (React gives each list
+  item its own instance), instead of one shared state object indexed by PR
+  number — simpler because each row already is its own component.
 
 ## Immediate next step
-Build the AI PR-summary feature against a **mocked** Claude summarizer:
-1. `lib/summarize.ts` exporting `summarizePR(diff: string): Promise<string>`
-   that returns canned fake summary text (no real API call).
-2. Fetch a given PR's diff from GitHub (new API call).
-3. Wire the mock summary into the UI with loading/error states.
-4. Real Claude API integration is deferred to one deliberate pass at the end
-   of the project.
+AI PR-summary feature (mock) is done: `summarizePR` stub, diff fetch, and UI
+wiring with loading/error states are all in place and verified via direct API
+calls. Manually click through the "Summarize" button in a real browser next
+session to confirm the UX feels right (loading text, error/retry path), then
+decide what's next — likely either the merge/comment/request-changes actions
+from the "What we're building" list, or Supabase auth/DB setup. Real Claude
+API integration stays deferred to one deliberate pass at the end of the
+project, once everything else is built.
 
 ## SDLC pipeline (not yet built)
 Planned 8 slash commands in `.claude/commands/`:

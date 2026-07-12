@@ -1,5 +1,7 @@
 import { cache } from "react";
 
+const GITHUB_REPO_URL = "https://api.github.com/repos/Selva-kumar-K/reviewflow";
+
 export type PullRequest = {
   number: number;
   title: string;
@@ -23,7 +25,7 @@ type GitHubPullRequest = {
 
 export const getPullRequests = cache(async (): Promise<PullRequest[]> => {
   const res = await fetch(
-    "https://api.github.com/repos/Selva-kumar-K/reviewflow/pulls?state=all",
+    `${GITHUB_REPO_URL}/pulls?state=all`,
     {
       headers: {
         Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
@@ -52,16 +54,13 @@ export const getPullRequests = cache(async (): Promise<PullRequest[]> => {
 
 export const getPullRequestDiff = cache(
   async (number: number): Promise<string> => {
-    const res = await fetch(
-      `https://api.github.com/repos/Selva-kumar-K/reviewflow/pulls/${number}`,
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-          Accept: "application/vnd.github.v3.diff",
-        },
-        cache: "no-store",
+    const res = await fetch(`${GITHUB_REPO_URL}/pulls/${number}`, {
+      headers: {
+        Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+        Accept: "application/vnd.github.v3.diff",
       },
-    );
+      cache: "no-store",
+    });
 
     if (!res.ok) {
       throw new Error(`GitHub API error: ${res.status} ${res.statusText}`);
@@ -70,3 +69,66 @@ export const getPullRequestDiff = cache(
     return res.text();
   },
 );
+
+export type PrComment = {
+  id: number;
+  author: string;
+  authorAvatarUrl: string;
+  body: string;
+  createdAt: string;
+  url: string;
+};
+
+type GitHubComment = {
+  id: number;
+  user: { login: string; avatar_url: string };
+  body: string;
+  created_at: string;
+  html_url: string;
+};
+
+export const getPullRequestComments = cache(
+  async (number: number): Promise<PrComment[]> => {
+    const res = await fetch(`${GITHUB_REPO_URL}/issues/${number}/comments`, {
+      headers: {
+        Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+        Accept: "application/vnd.github.v3+json",
+      },
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      throw new Error(`GitHub API error: ${res.status} ${res.statusText}`);
+    }
+
+    const comments: GitHubComment[] = await res.json();
+    return comments.map((c) => ({
+      id: c.id,
+      author: c.user.login,
+      authorAvatarUrl: c.user.avatar_url,
+      body: c.body,
+      createdAt: c.created_at,
+      url: c.html_url,
+    }));
+  },
+);
+
+export async function commentOnPullRequest(
+  number: number,
+  body: string,
+): Promise<void> {
+  const res = await fetch(`${GITHUB_REPO_URL}/issues/${number}/comments`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+      Accept: "application/vnd.github.v3+json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ body }),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`GitHub API error: ${res.status} ${res.statusText} — ${detail}`);
+  }
+}

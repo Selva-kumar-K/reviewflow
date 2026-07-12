@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import Image from 'next/image';
-import type { PullRequest } from '@/lib/github';
+import type { PrComment, PullRequest } from '@/lib/github';
 
 type Filter = 'all' | 'open' | 'merged' | 'closed';
 
@@ -109,6 +109,155 @@ function SummaryPanel({ pr }: { pr: PullRequest }) {
   );
 }
 
+type CommentsListState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'loaded'; comments: PrComment[] };
+
+type PostCommentState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error' };
+
+function CommentsSection({ pr }: { pr: PullRequest }) {
+  const [listState, setListState] = useState<CommentsListState>({ status: 'idle' });
+  const [text, setText] = useState('');
+  const [postState, setPostState] = useState<PostCommentState>({ status: 'idle' });
+
+  async function loadComments() {
+    setListState({ status: 'loading' });
+    try {
+      const res = await fetch(`/api/prs/${pr.number}/comments`);
+      if (!res.ok) throw new Error('Request failed');
+      const comments: PrComment[] = await res.json();
+      setListState({ status: 'loaded', comments });
+    } catch {
+      setListState({ status: 'error' });
+    }
+  }
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (text.trim().length === 0) return;
+
+    setPostState({ status: 'loading' });
+    try {
+      const res = await fetch(`/api/prs/${pr.number}/comment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: text }),
+      });
+      if (!res.ok) throw new Error('Request failed');
+      setPostState({ status: 'idle' });
+      setText('');
+      await loadComments();
+    } catch {
+      setPostState({ status: 'error' });
+    }
+  }
+
+  if (listState.status === 'idle') {
+    return (
+      <button
+        type="button"
+        onClick={loadComments}
+        className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+      >
+        Show comments
+      </button>
+    );
+  }
+
+  if (listState.status === 'loading') {
+    return (
+      <p className="text-sm text-black/60 dark:text-white/60">Loading comments…</p>
+    );
+  }
+
+  if (listState.status === 'error') {
+    return (
+      <p className="text-sm text-red-600 dark:text-red-400">
+        Couldn&apos;t load comments.{' '}
+        <button
+          type="button"
+          onClick={loadComments}
+          className="font-medium hover:underline"
+        >
+          Retry
+        </button>
+      </p>
+    );
+  }
+
+  const { comments } = listState;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm font-medium text-black/60 dark:text-white/60">
+        {comments.length === 0
+          ? 'No comments yet'
+          : `${comments.length} comment${comments.length === 1 ? '' : 's'}`}
+      </p>
+      {comments.length > 0 && (
+        <ul className="space-y-2">
+          {comments.map((c) => (
+            <li key={c.id} className="flex gap-2">
+              <Image
+                src={c.authorAvatarUrl}
+                alt={c.author}
+                width={20}
+                height={20}
+                className="h-5 w-5 rounded-full"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm">
+                  <a
+                    href={c.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium hover:underline"
+                  >
+                    {c.author}
+                  </a>{' '}
+                  <span className="text-black/50 dark:text-white/50">
+                    {formatDate(c.createdAt)}
+                  </span>
+                </p>
+                <p className="whitespace-pre-wrap text-sm text-black/80 dark:text-white/80">
+                  {c.body}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form onSubmit={handleSubmit} className="flex items-start gap-2">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Leave a comment…"
+          rows={1}
+          disabled={postState.status === 'loading'}
+          className="min-w-0 flex-1 resize-none rounded-md border border-black/10 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 disabled:opacity-50 dark:border-white/10 dark:focus:border-white/30"
+        />
+        <button
+          type="submit"
+          disabled={postState.status === 'loading' || text.trim().length === 0}
+          className="rounded-md bg-black/5 px-3 py-1 text-sm font-medium text-black/70 hover:bg-black/10 disabled:opacity-50 dark:bg-white/10 dark:text-white/70 dark:hover:bg-white/20"
+        >
+          {postState.status === 'loading' ? 'Posting…' : 'Comment'}
+        </button>
+      </form>
+      {postState.status === 'error' && (
+        <p className="text-sm text-red-600 dark:text-red-400">
+          Couldn&apos;t post that comment. Try again.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function PrList({ prs }: { prs: PullRequest[] }) {
   const [filter, setFilter] = useState<Filter>('all');
   const filteredPrs = prs.filter((pr) => matchesFilter(pr, filter));
@@ -157,8 +306,9 @@ export function PrList({ prs }: { prs: PullRequest[] }) {
               </div>
               <StatusBadge pr={pr} />
             </div>
-            <div className="mt-2 pl-11">
+            <div className="mt-2 space-y-2 pl-11">
               <SummaryPanel pr={pr} />
+              <CommentsSection pr={pr} />
             </div>
           </li>
         ))}

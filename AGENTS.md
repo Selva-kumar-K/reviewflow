@@ -88,6 +88,37 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   "Summarize" button confirmed present in rendered HTML. Not yet click-tested
   in an actual browser (Chrome extension wasn't connected this session) — do
   a manual click-through next session to eyeball the loading/result states.
+- `lib/github.ts` — added `GITHUB_REPO_URL` constant (was previously repeated
+  inline in two fetch calls; factored out once a third call needed it).
+  Added `commentOnPullRequest(number, body)` — first **mutating** (`POST`)
+  call in the codebase, hits GitHub's `issues/{number}/comments` endpoint
+  (PRs are comments-compatible with issues in GitHub's API). Also added
+  `getPullRequestComments(number)`, a `cache()`-wrapped `GET` on the same
+  endpoint, mapped to a new `PrComment` type (`id`, `author`,
+  `authorAvatarUrl`, `body`, `createdAt`, `url`).
+- `app/api/prs/[number]/comment/route.ts` — `POST` handler, validates
+  non-empty body, calls `commentOnPullRequest`, returns `{ ok: true }`.
+- `app/api/prs/[number]/comments/route.ts` — `GET` handler, calls
+  `getPullRequestComments`, returns the array as JSON.
+- `components/PrList.tsx` — added `CommentsSection`, replacing the earlier
+  post-only `CommentForm`. Starts as a "Show comments" toggle (lazy-loaded,
+  not fetched on page load); once expanded, shows the existing comment list
+  plus a post form below it. Posting successfully re-fetches the list so the
+  new comment appears without a page reload, instead of just clearing the
+  form.
+- **Gotcha, verified the hard way**: fine-grained GitHub PATs gate `Issues`
+  and `Pull requests` write access as *separate* permission categories from
+  general repo push/admin access. A token can show `push: true` on
+  `GET /repos/{owner}/{repo}` and still 403 on `POST .../issues/{n}/comments`
+  if `Issues` wasn't explicitly set to "Read and write" on the token itself.
+  Confirmed fix: set both `Issues` and `Pull requests` to "Read and write" on
+  the token (Pull requests needed ahead of time for the merge/request-changes
+  actions planned next).
+- Verified live against the real repo: posted and listed a real comment on
+  PR #1 via the running dev server (not just typecheck/lint) —
+  https://github.com/Selva-kumar-K/reviewflow/pull/1#issuecomment-4951341256
+  (a test comment; safe to delete from GitHub directly, no in-app delete
+  built yet).
 
 ### Concepts covered so far
 - Server vs Client Components in the App Router: Server Components run only on
@@ -102,16 +133,26 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   row, keyed by nothing more than component identity (React gives each list
   item its own instance), instead of one shared state object indexed by PR
   number — simpler because each row already is its own component.
+- `GET` vs mutating (`POST`) route handlers: reads can be freely re-tested
+  (curl it as many times as you want), but a `POST` to a GitHub endpoint has
+  a real, visible side effect on the actual repo — so testing a mutation is a
+  deliberate, confirmed action, not something to fire casually the way a
+  read-only check can be.
+- Keeping a list in sync with a write: after `CommentsSection` posts a new
+  comment, it re-fetches the comment list rather than trying to locally
+  splice the new comment into state — simpler and guarantees the displayed
+  data matches what GitHub actually has (including GitHub-side fields like
+  `id` that the client doesn't invent itself).
 
 ## Immediate next step
-AI PR-summary feature (mock) is done: `summarizePR` stub, diff fetch, and UI
-wiring with loading/error states are all in place and verified via direct API
-calls. Manually click through the "Summarize" button in a real browser next
-session to confirm the UX feels right (loading text, error/retry path), then
-decide what's next — likely either the merge/comment/request-changes actions
-from the "What we're building" list, or Supabase auth/DB setup. Real Claude
-API integration stays deferred to one deliberate pass at the end of the
-project, once everything else is built.
+Comment feature (post + list) is done and verified live against the real
+repo. Next planned action per "What we're building": **request changes** —
+`POST /pulls/{number}/reviews` with `event: "REQUEST_CHANGES"` (requires a
+body). After that, **merge** (`PUT /pulls/{number}/merge`) last, since it's
+the hardest action to casually undo. No in-app comment delete built yet
+(intentionally out of scope so far — only add if asked). Real Claude API
+integration stays deferred to one deliberate pass at the end of the project,
+once everything else is built.
 
 ## SDLC pipeline (not yet built)
 Planned 8 slash commands in `.claude/commands/`:

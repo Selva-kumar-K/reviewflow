@@ -38,8 +38,9 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
 
 ## Stack
 - Next.js App Router + TypeScript + Tailwind v4 (set up)
-- Supabase — auth + DB + realtime (not yet added)
-- Claude API — PR diff summarization (not yet added; mock first, see above)
+- Supabase — auth + DB + realtime (auth in progress, see below)
+- Claude API — PR diff summarization (not yet added; mock first, see above).
+  Real provider choice undecided between Claude vs Gemini — see note below.
 - Vercel — deployment (not yet done)
 
 ## Current progress (as of 2026-07-16)
@@ -171,6 +172,40 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   **Contents** permission, not `Pull requests`. Confirmed fix: set
   `Contents` to "Read and write" on the token as well. Verified end-to-end
   against a real PR after the fix — merge succeeded.
+- **Decision**: real Claude API integration is deferred until the rest of the
+  project is done, per the original mock-first plan — no change there. What's
+  new: Selva doesn't currently have a card to fund Anthropic billing, so
+  Gemini (Google AI Studio, free tier, no card required) is under
+  consideration as the real backend instead of/ahead of Claude. Not decided
+  yet — revisit before actually doing the swap. Either way, `summarizePR`'s
+  existing signature keeps this a one-file change in `lib/summarize.ts`
+  regardless of provider, and the plan is to gate the real call behind an env
+  flag (mock as the default even after the swap exists) so a deployed public
+  demo can't rack up unbounded API cost from randoms clicking "Summarize."
+- Started Supabase auth. Created a Supabase project
+  (`hsnlaozzjkdgrivltiiz.supabase.co`); added `NEXT_PUBLIC_SUPABASE_URL` and
+  `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` to `.env.local`. Installed
+  `@supabase/supabase-js` + `@supabase/ssr`.
+- `lib/supabase/client.ts` — `createClient()` via `createBrowserClient`, for
+  Client Components (reads the session cookie straight from the browser).
+- `lib/supabase/server.ts` — `createClient()` via `createServerClient`, for
+  Server Components/Route Handlers. Reads/writes cookies through Next's
+  `cookies()`, which is async in this Next version (same pattern as
+  `await params` above) — so this helper is an `async function` too.
+- GitHub OAuth App created on GitHub (Client ID + Secret), pasted into
+  Supabase's Authentication → Providers → GitHub panel and enabled. Nothing
+  in the app consumes this yet — no sign-in button or callback route built.
+- **Gotcha, self-inflicted**: appended the two Supabase env vars to
+  `.env.local` with `cat >> file <<EOF` specifically to avoid printing the
+  existing `GITHUB_TOKEN` line. Missed that the original file had no
+  trailing newline, so the append glued straight onto the end of the
+  token's value instead of starting a new line — corrupted `GITHUB_TOKEN`
+  (broke every `lib/github.ts` call) and meant `NEXT_PUBLIC_SUPABASE_URL`
+  was never actually set as its own variable. Fixed with an in-place `sed`
+  insert keyed on the literal string that had been appended (never printing
+  the token itself), confirmed fixed by checking `/api/prs` returned 200
+  again. Lesson for future appends to existing env/secret files: confirm a
+  trailing newline exists first, don't assume it.
 
 ### Concepts covered so far
 - Server vs Client Components in the App Router: Server Components run only on
@@ -200,20 +235,31 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   500 with no body, which hides the actual cause (here, GitHub's real error
   message) from the client. Catching and returning `{ error: message }`
   turns a debugging session into a message you can just read.
+- Two Supabase clients, not one: auth has to work in both the browser (Client
+  Components) and on the server (Server Components/Route Handlers), and each
+  side finds "is this user logged in" a different way — the browser reads a
+  cookie directly, the server reads it through Next's `cookies()` API. Same
+  secret/no-secret, client/server boundary you already know from
+  `GITHUB_TOKEN`, just applied to auth sessions instead of a repo token.
 
 ## Immediate next step
-All four planned actions from "What we're building" (summarize, comment,
-request changes, merge) are now implemented and verified live against the
-real repo — merge included, confirmed end-to-end after fixing the `Contents`
-PAT permission gotcha above. Two things remain open from earlier sessions:
-(1) request-changes' happy path (a successful `REQUEST_CHANGES` review
-actually filed) is still unverified solo — GitHub blocks that review type on
-your own PR, so it needs a PR authored by someone other than Selva to test
-against; (2) no in-app comment delete built (intentionally out of scope so
-far — only add if asked). With the core action set done, next real choices
-are: start wiring the real Claude API in one deliberate pass (see mock
-constraint above), or move on to Supabase (auth/DB/realtime, not yet added).
-Decide which at the start of next session rather than defaulting.
+Supabase auth is partway wired: project created, env vars set, both
+`lib/supabase/client.ts` and `lib/supabase/server.ts` helpers written and
+type-checked, GitHub OAuth provider enabled in the Supabase dashboard (Client
+ID/Secret from a GitHub OAuth App). Nothing consumes this yet. Next actual
+step: build the "Sign in with GitHub" button (Client Component, calls
+`supabase.auth.signInWithOAuth({ provider: 'github' })` via
+`lib/supabase/client.ts`), the `/auth/callback` route that exchanges the
+OAuth code for a session, and gate `app/page.tsx` behind a logged-in check —
+one piece at a time, not all in one pass.
+
+Also still open from earlier sessions: (1) request-changes' happy path (a
+successful `REQUEST_CHANGES` review actually filed) is still unverified solo
+— GitHub blocks that review type on your own PR, needs a PR from another
+account to test; (2) no in-app comment delete built (intentionally out of
+scope — only add if asked); (3) real Claude vs Gemini decision for the AI
+summary backend, deferred until the rest of the project is done (see Stack
+and Current progress notes above).
 
 ## SDLC pipeline (not yet built)
 Planned 8 slash commands in `.claude/commands/`:

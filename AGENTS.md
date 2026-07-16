@@ -42,7 +42,7 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
 - Claude API — PR diff summarization (not yet added; mock first, see above)
 - Vercel — deployment (not yet done)
 
-## Current progress (as of 2026-07-12)
+## Current progress (as of 2026-07-16)
 - `lib/github.ts` — `getPullRequests()`, a `cache()`-wrapped fetch against the
   GitHub REST API. Maps the raw GitHub response (`GitHubPullRequest`) into a
   clean `PullRequest` type: `number`, `title`, `author`, `authorAvatarUrl`,
@@ -119,6 +119,33 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   https://github.com/Selva-kumar-K/reviewflow/pull/1#issuecomment-4951341256
   (a test comment; safe to delete from GitHub directly, no in-app delete
   built yet).
+- `lib/github.ts` — added `requestChangesOnPullRequest(number, body)`, same
+  shape as `commentOnPullRequest` but hits a different GitHub concept:
+  `POST /pulls/{number}/reviews` with `{ body, event: "REQUEST_CHANGES" }`.
+  A "review" is distinct from an issue comment — it carries formal PR state
+  (`APPROVE` / `REQUEST_CHANGES` / `COMMENT`). GitHub requires a non-empty
+  `body` when `event` is `REQUEST_CHANGES`.
+- `app/api/prs/[number]/request-changes/route.ts` — `POST` handler,
+  validates non-empty body, calls `requestChangesOnPullRequest`.
+- `components/PrList.tsx` — added `RequestChangesSection`: a "Request
+  changes" toggle that opens a textarea + submit, shows "Submitting…" while
+  pending, and "Changes requested on GitHub." once it succeeds.
+- **Error handling fix, both mutating routes** (`comment` and
+  `request-changes`): originally neither route caught errors thrown by the
+  `lib/github.ts` call, so any GitHub-side failure surfaced to the browser as
+  an opaque 500 with no detail. Both routes now `try/catch` and return
+  `{ error: message }` with a `502`; the UI reads and displays that message
+  instead of a generic "try again."
+- **Gotcha, found while testing request-changes**: GitHub rejects `APPROVE`
+  and `REQUEST_CHANGES` reviews submitted on your own pull request (only
+  `COMMENT` reviews are allowed on a PR you authored) — same restriction as
+  the GitHub web UI, which only offers "Comment" in the review dropdown on
+  your own PR. Confirmed by testing against a PR Selva opened themselves;
+  the improved error handling above surfaced GitHub's real message instead
+  of a blank 500. Means this feature can't be fully happy-path-tested solo
+  without a PR authored by a different account — code follows the same
+  pattern as the already-verified comment POST, so it's believed correct,
+  but not yet verified end-to-end with a successful review filed.
 
 ### Concepts covered so far
 - Server vs Client Components in the App Router: Server Components run only on
@@ -143,16 +170,23 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   splice the new comment into state — simpler and guarantees the displayed
   data matches what GitHub actually has (including GitHub-side fields like
   `id` that the client doesn't invent itself).
+- Route handlers must catch errors from the functions they call, not just
+  let them throw: an uncaught throw inside a route handler becomes a bare
+  500 with no body, which hides the actual cause (here, GitHub's real error
+  message) from the client. Catching and returning `{ error: message }`
+  turns a debugging session into a message you can just read.
 
 ## Immediate next step
-Comment feature (post + list) is done and verified live against the real
-repo. Next planned action per "What we're building": **request changes** —
-`POST /pulls/{number}/reviews` with `event: "REQUEST_CHANGES"` (requires a
-body). After that, **merge** (`PUT /pulls/{number}/merge`) last, since it's
-the hardest action to casually undo. No in-app comment delete built yet
-(intentionally out of scope so far — only add if asked). Real Claude API
-integration stays deferred to one deliberate pass at the end of the project,
-once everything else is built.
+Request-changes feature (route + UI) is built, and the "self-review" GitHub
+restriction is understood and documented above, but the happy path (a
+successful review actually filed) is still unverified — needs a PR authored
+by someone other than Selva to test against. Next planned action per "What
+we're building": **merge** (`PUT /pulls/{number}/merge`) — last, since it's
+the hardest action to casually undo, so implement carefully and confirm
+explicitly before firing it against a real PR. No in-app comment delete
+built yet (intentionally out of scope so far — only add if asked). Real
+Claude API integration stays deferred to one deliberate pass at the end of
+the project, once everything else is built.
 
 ## SDLC pipeline (not yet built)
 Planned 8 slash commands in `.claude/commands/`:

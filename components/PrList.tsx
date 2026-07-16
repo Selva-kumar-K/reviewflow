@@ -258,6 +258,85 @@ function CommentsSection({ pr }: { pr: PullRequest }) {
   );
 }
 
+type RequestChangesState =
+  | { status: 'idle' }
+  | { status: 'open' }
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'done' };
+
+function RequestChangesSection({ pr }: { pr: PullRequest }) {
+  const [state, setState] = useState<RequestChangesState>({ status: 'idle' });
+  const [text, setText] = useState('');
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (text.trim().length === 0) return;
+
+    setState({ status: 'loading' });
+    try {
+      const res = await fetch(`/api/prs/${pr.number}/request-changes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: text }),
+      });
+      if (!res.ok) {
+        const data: { error?: string } = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? 'Request failed');
+      }
+      setState({ status: 'done' });
+    } catch (err) {
+      setState({
+        status: 'error',
+        message: err instanceof Error ? err.message : 'Request failed',
+      });
+    }
+  }
+
+  if (state.status === 'idle') {
+    return (
+      <button
+        type="button"
+        onClick={() => setState({ status: 'open' })}
+        className="text-sm font-medium text-orange-600 hover:underline dark:text-orange-400"
+      >
+        Request changes
+      </button>
+    );
+  }
+
+  if (state.status === 'done') {
+    return (
+      <p className="text-sm text-black/60 dark:text-white/60">
+        Changes requested on GitHub.
+      </p>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex items-start gap-2">
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="What needs to change?"
+        rows={2}
+        disabled={state.status === 'loading'}
+        className="min-w-0 flex-1 resize-none rounded-md border border-black/10 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 disabled:opacity-50 dark:border-white/10 dark:focus:border-white/30"
+      />
+      <button
+        type="submit"
+        disabled={state.status === 'loading' || text.trim().length === 0}
+        className="rounded-md bg-orange-100 px-3 py-1 text-sm font-medium text-orange-700 hover:bg-orange-200 disabled:opacity-50 dark:bg-orange-950 dark:text-orange-300 dark:hover:bg-orange-900"
+      >
+        {state.status === 'loading' ? 'Submitting…' : 'Submit'}
+      </button>
+      {state.status === 'error' && (
+        <p className="text-sm text-red-600 dark:text-red-400">{state.message}</p>
+      )}
+    </form>
+  );
+}
+
 export function PrList({ prs }: { prs: PullRequest[] }) {
   const [filter, setFilter] = useState<Filter>('all');
   const filteredPrs = prs.filter((pr) => matchesFilter(pr, filter));
@@ -308,6 +387,7 @@ export function PrList({ prs }: { prs: PullRequest[] }) {
             </div>
             <div className="mt-2 space-y-2 pl-11">
               <SummaryPanel pr={pr} />
+              <RequestChangesSection pr={pr} />
               <CommentsSection pr={pr} />
             </div>
           </li>

@@ -132,3 +132,23 @@ export async function commentOnPullRequest(
     throw new Error(`GitHub API error: ${res.status} ${res.statusText} — ${detail}`);
   }
 }
+
+export async function requestChangesOnPullRequest(
+  number: number,
+  body: string,
+): Promise<void> {
+  const res = await fetch(`${GITHUB_REPO_URL}/pulls/${number}/reviews`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+      Accept: "application/vnd.github.v3+json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ body, event: "REQUEST_CHANGES" }),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`GitHub API error: ${res.status} ${res.statusText} — ${detail}`);
+  }
+}

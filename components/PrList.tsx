@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import Image from 'next/image';
-import type { PrComment, PullRequest } from '@/lib/github';
+import type { MergeMethod, PrComment, PullRequest } from '@/lib/github';
 
 type Filter = 'all' | 'open' | 'merged' | 'closed';
 
@@ -337,6 +337,103 @@ function RequestChangesSection({ pr }: { pr: PullRequest }) {
   );
 }
 
+type MergeState =
+  | { status: 'idle' }
+  | { status: 'confirming' }
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'done' };
+
+const MERGE_METHODS: { value: MergeMethod; label: string }[] = [
+  { value: 'squash', label: 'Squash and merge' },
+  { value: 'merge', label: 'Create a merge commit' },
+  { value: 'rebase', label: 'Rebase and merge' },
+];
+
+function MergeSection({ pr }: { pr: PullRequest }) {
+  const [state, setState] = useState<MergeState>({ status: 'idle' });
+  const [mergeMethod, setMergeMethod] = useState<MergeMethod>('squash');
+
+  if (pr.state !== 'open' || pr.isMerged) return null;
+
+  async function handleConfirmMerge() {
+    setState({ status: 'loading' });
+    try {
+      const res = await fetch(`/api/prs/${pr.number}/merge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mergeMethod }),
+      });
+      if (!res.ok) {
+        const data: { error?: string } = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? 'Request failed');
+      }
+      setState({ status: 'done' });
+    } catch (err) {
+      setState({
+        status: 'error',
+        message: err instanceof Error ? err.message : 'Request failed',
+      });
+    }
+  }
+
+  if (state.status === 'idle') {
+    return (
+      <button
+        type="button"
+        onClick={() => setState({ status: 'confirming' })}
+        className="text-sm font-medium text-green-600 hover:underline dark:text-green-400"
+      >
+        Merge
+      </button>
+    );
+  }
+
+  if (state.status === 'done') {
+    return (
+      <p className="text-sm text-black/60 dark:text-white/60">
+        Merged on GitHub.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <select
+        value={mergeMethod}
+        onChange={(e) => setMergeMethod(e.target.value as MergeMethod)}
+        disabled={state.status === 'loading'}
+        className="rounded-md border border-black/10 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 disabled:opacity-50 dark:border-white/10 dark:focus:border-white/30"
+      >
+        {MERGE_METHODS.map((m) => (
+          <option key={m.value} value={m.value} className="text-black">
+            {m.label}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        onClick={handleConfirmMerge}
+        disabled={state.status === 'loading'}
+        className="rounded-md bg-green-100 px-3 py-1 text-sm font-medium text-green-700 hover:bg-green-200 disabled:opacity-50 dark:bg-green-950 dark:text-green-300 dark:hover:bg-green-900"
+      >
+        {state.status === 'loading' ? 'Merging…' : 'Confirm merge'}
+      </button>
+      <button
+        type="button"
+        onClick={() => setState({ status: 'idle' })}
+        disabled={state.status === 'loading'}
+        className="text-sm font-medium text-black/60 hover:underline disabled:opacity-50 dark:text-white/60"
+      >
+        Cancel
+      </button>
+      {state.status === 'error' && (
+        <p className="text-sm text-red-600 dark:text-red-400">{state.message}</p>
+      )}
+    </div>
+  );
+}
+
 export function PrList({ prs }: { prs: PullRequest[] }) {
   const [filter, setFilter] = useState<Filter>('all');
   const filteredPrs = prs.filter((pr) => matchesFilter(pr, filter));
@@ -387,6 +484,7 @@ export function PrList({ prs }: { prs: PullRequest[] }) {
             </div>
             <div className="mt-2 space-y-2 pl-11">
               <SummaryPanel pr={pr} />
+              <MergeSection pr={pr} />
               <RequestChangesSection pr={pr} />
               <CommentsSection pr={pr} />
             </div>

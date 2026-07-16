@@ -146,6 +146,31 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   without a PR authored by a different account — code follows the same
   pattern as the already-verified comment POST, so it's believed correct,
   but not yet verified end-to-end with a successful review filed.
+- `lib/github.ts` — added `mergePullRequest(number, mergeMethod)`, hitting
+  `PUT /pulls/{number}/merge` with `{ merge_method }`. New `MergeMethod` type
+  (`"merge" | "squash" | "rebase"`), defaulting to `"squash"`.
+- `app/api/prs/[number]/merge/route.ts` — `POST` handler (internal route
+  stays `POST` like the other mutating routes, even though the underlying
+  GitHub call is a `PUT`); validates `mergeMethod` against the three known
+  values and falls back to `"squash"` if missing/invalid, calls
+  `mergePullRequest`, same try/catch → `{ error }` + 502 pattern as
+  `comment`/`request-changes`.
+- `components/PrList.tsx` — added `MergeSection`: only renders for PRs that
+  are still open and unmerged. Two-step confirm instead of a native
+  `confirm()` dialog (deliberately — a real `confirm()` would block further
+  automated browser testing of the page): click "Merge" reveals a merge-
+  strategy `<select>` (squash / merge commit / rebase, defaulting to squash)
+  plus "Confirm merge" and "Cancel" buttons; only the second click actually
+  calls the API.
+- **Gotcha, verified the hard way**: merging is a *different* fine-grained
+  PAT permission category than commenting/reviewing. `Issues` and
+  `Pull requests` (already set to "Read and write" for comment/request-
+  changes) are not enough for `PUT /pulls/{number}/merge` — GitHub returned
+  "Resource not accessible by personal access token". Root cause: merging
+  actually writes a commit to the base branch, which falls under the
+  **Contents** permission, not `Pull requests`. Confirmed fix: set
+  `Contents` to "Read and write" on the token as well. Verified end-to-end
+  against a real PR after the fix — merge succeeded.
 
 ### Concepts covered so far
 - Server vs Client Components in the App Router: Server Components run only on
@@ -177,16 +202,18 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   turns a debugging session into a message you can just read.
 
 ## Immediate next step
-Request-changes feature (route + UI) is built, and the "self-review" GitHub
-restriction is understood and documented above, but the happy path (a
-successful review actually filed) is still unverified — needs a PR authored
-by someone other than Selva to test against. Next planned action per "What
-we're building": **merge** (`PUT /pulls/{number}/merge`) — last, since it's
-the hardest action to casually undo, so implement carefully and confirm
-explicitly before firing it against a real PR. No in-app comment delete
-built yet (intentionally out of scope so far — only add if asked). Real
-Claude API integration stays deferred to one deliberate pass at the end of
-the project, once everything else is built.
+All four planned actions from "What we're building" (summarize, comment,
+request changes, merge) are now implemented and verified live against the
+real repo — merge included, confirmed end-to-end after fixing the `Contents`
+PAT permission gotcha above. Two things remain open from earlier sessions:
+(1) request-changes' happy path (a successful `REQUEST_CHANGES` review
+actually filed) is still unverified solo — GitHub blocks that review type on
+your own PR, so it needs a PR authored by someone other than Selva to test
+against; (2) no in-app comment delete built (intentionally out of scope so
+far — only add if asked). With the core action set done, next real choices
+are: start wiring the real Claude API in one deliberate pass (see mock
+constraint above), or move on to Supabase (auth/DB/realtime, not yet added).
+Decide which at the start of next session rather than defaulting.
 
 ## SDLC pipeline (not yet built)
 Planned 8 slash commands in `.claude/commands/`:

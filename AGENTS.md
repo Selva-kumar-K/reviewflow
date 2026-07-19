@@ -326,17 +326,41 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   the new cookie and re-renders, without a full page reload. Same
   server/client split as the rest of auth, just triggered manually instead
   of by a URL change.
+- Caching a slow/rate-limited external call by keying on its own input,
+  not an ID that points at it: `summarizePR`'s cache is keyed by the diff
+  string itself, not by PR number. A PR number is a proxy for "which diff"
+  and goes stale the moment new commits land; the diff text *is* the
+  content being summarized, so caching on it can't ever serve a stale
+  summary for a changed PR, and needs no invalidation logic.
+- Caching in-flight promises, not just resolved values: `summaryCache`
+  stores the `Promise<string>` from `summarizePRReal`/`summarizePRMock`
+  immediately, before it resolves. Two near-simultaneous requests for the
+  same diff (double-click, two browser tabs) both get the same in-flight
+  promise instead of firing two Gemini calls — the second caller just
+  awaits the first caller's request. A cache keyed on the resolved value
+  only would still race during that window.
+
+- `lib/summarize.ts` — added an in-memory `summaryCache` (module-level
+  `Map<string, Promise<string>>`, keyed by the diff string) inside
+  `summarizePR`. A rejected promise deletes its own cache entry via
+  `.catch()` before rethrowing, so a failed Gemini call doesn't permanently
+  poison the cache — clicking "Retry" genuinely retries instead of
+  replaying the same error forever. Verified end-to-end against the
+  running dev server with `USE_REAL_SUMMARIZER=true`: first call to
+  `/api/prs/1/summary` took ~8.7s (real Gemini round trip), second call for
+  the same PR returned the identical summary in ~0.8s with no second
+  Gemini call.
 
 ## Immediate next step
-The AI summary feature now hits the real Gemini API (`gemini-3.5-flash`,
-gated behind `USE_REAL_SUMMARIZER`) — verified end-to-end in a real browser.
-The free-tier key is capped at 10 requests/minute and under 250/day, and
-nothing currently prevents duplicate calls (e.g. re-clicking "Summarize" on
-a PR you've already summarized just re-hits the API). Smallest next piece:
-cache each PR's summary (even something as simple as in-memory keyed by PR
-number + diff, or a DB table if Supabase is already in play for auth) so a
-PR is only ever summarized once per diff, plus some guard against rapid
-repeat clicks on the same button.
+Summary caching is done (see above) — re-viewing or re-clicking
+"Summarize" on an already-summarized diff no longer burns Gemini free-tier
+quota (10 req/min, <250/day), and concurrent duplicate calls collapse into
+one in-flight request. The cache is in-memory only, so it resets on server
+restart/redeploy — fine for a single dev/demo process, but worth noting if
+this ever runs across multiple serverless instances (each would have its
+own empty cache) or needs to survive restarts; a DB-backed cache (Supabase
+table, since auth is already in play) would be the next step if that ever
+matters. Not needed yet — don't build ahead of an actual problem.
 
 Still open from earlier sessions: (1) request-changes' happy path (a
 successful `REQUEST_CHANGES` review actually filed) is still unverified solo

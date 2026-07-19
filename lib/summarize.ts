@@ -36,9 +36,23 @@ async function summarizePRReal(diff: string): Promise<string> {
   return response.text ?? "Gemini returned no summary text.";
 }
 
+const summaryCache = new Map<string, Promise<string>>();
+
 export async function summarizePR(diff: string): Promise<string> {
-  if (process.env.USE_REAL_SUMMARIZER === "true") {
-    return summarizePRReal(diff);
+  const cached = summaryCache.get(diff);
+  if (cached) {
+    return cached;
   }
-  return summarizePRMock(diff);
+
+  const promise = (
+    process.env.USE_REAL_SUMMARIZER === "true"
+      ? summarizePRReal(diff)
+      : summarizePRMock(diff)
+  ).catch((error) => {
+    summaryCache.delete(diff);
+    throw error;
+  });
+
+  summaryCache.set(diff, promise);
+  return promise;
 }

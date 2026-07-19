@@ -6,7 +6,12 @@ export async function GET(
   { params }: { params: Promise<{ number: string }> },
 ) {
   const { number } = await params;
-  const diff = await getPullRequestDiff(Number(number));
-  const summary = await summarizePR(diff);
-  return Response.json({ summary });
+  try {
+    const diff = await getPullRequestDiff(Number(number));
+    const summary = await summarizePR(diff);
+    return Response.json({ summary });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return Response.json({ error: message }, { status: 502 });
+  }
 }

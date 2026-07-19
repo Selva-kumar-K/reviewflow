@@ -53,7 +53,7 @@ function formatDate(iso: string) {
 type SummaryState =
   | { status: 'idle' }
   | { status: 'loading' }
-  | { status: 'error' }
+  | { status: 'error'; message: string }
   | { status: 'done'; summary: string };
 
 function SummaryPanel({ pr }: { pr: PullRequest }) {
@@ -63,11 +63,17 @@ function SummaryPanel({ pr }: { pr: PullRequest }) {
     setState({ status: 'loading' });
     try {
       const res = await fetch(`/api/prs/${pr.number}/summary`);
-      if (!res.ok) throw new Error('Request failed');
+      if (!res.ok) {
+        const data: { error?: string } = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? 'Request failed');
+      }
       const data: { summary: string } = await res.json();
       setState({ status: 'done', summary: data.summary });
-    } catch {
-      setState({ status: 'error' });
+    } catch (err) {
+      setState({
+        status: 'error',
+        message: err instanceof Error ? err.message : 'Request failed',
+      });
     }
   }
 
@@ -92,7 +98,7 @@ function SummaryPanel({ pr }: { pr: PullRequest }) {
   if (state.status === 'error') {
     return (
       <p className="text-sm text-red-600 dark:text-red-400">
-        Couldn&apos;t summarize this PR.{' '}
+        {state.message}{' '}
         <button
           type="button"
           onClick={handleSummarize}

@@ -39,8 +39,10 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
 ## Stack
 - Next.js App Router + TypeScript + Tailwind v4 (set up)
 - Supabase — auth + DB + realtime (auth in progress, see below)
-- Claude API — PR diff summarization (not yet added; mock first, see above).
-  Real provider choice undecided between Claude vs Gemini — see note below.
+- Gemini API (`gemini-3.5-flash`) — PR diff summarization. Decided over
+  Claude since Selva doesn't have a card on file for Anthropic billing and
+  Gemini's free tier needs none. Real call is gated behind an env flag,
+  mock is the default — see Current progress below.
 - Vercel — deployment (not yet done)
 
 ## Current progress (as of 2026-07-16)
@@ -172,16 +174,49 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   **Contents** permission, not `Pull requests`. Confirmed fix: set
   `Contents` to "Read and write" on the token as well. Verified end-to-end
   against a real PR after the fix — merge succeeded.
-- **Decision**: real Claude API integration is deferred until the rest of the
-  project is done, per the original mock-first plan — no change there. What's
-  new: Selva doesn't currently have a card to fund Anthropic billing, so
-  Gemini (Google AI Studio, free tier, no card required) is under
-  consideration as the real backend instead of/ahead of Claude. Not decided
-  yet — revisit before actually doing the swap. Either way, `summarizePR`'s
-  existing signature keeps this a one-file change in `lib/summarize.ts`
-  regardless of provider, and the plan is to gate the real call behind an env
-  flag (mock as the default even after the swap exists) so a deployed public
-  demo can't rack up unbounded API cost from randoms clicking "Summarize."
+- **Decision**: Gemini chosen over Claude as the real summarizer backend —
+  Selva doesn't have a card on file for Anthropic billing; Google AI Studio's
+  free tier needs none.
+- `lib/summarize.ts` — wired up the real call. `summarizePR`'s signature is
+  unchanged (still `(diff: string): Promise<string>`, still the only thing
+  `app/api/prs/[number]/summary/route.ts` calls), so nothing outside this
+  file changed. Internally it now branches: `summarizePRMock` (the original
+  canned-summary logic, untouched) is the default; `summarizePRReal` (new)
+  calls the Gemini API via `@google/genai`'s `GoogleGenAI` client and is
+  only used when `process.env.USE_REAL_SUMMARIZER === 'true'`. New env vars
+  in `.env.local`: `GEMINI_API_KEY`, `USE_REAL_SUMMARIZER`. Mock stays the
+  default even with the real path wired up, per the original plan — a
+  deployed public demo won't rack up API cost unless the flag is flipped on
+  deliberately.
+- `app/api/prs/[number]/summary/route.ts` — had the same bug the
+  comment/request-changes routes originally had (see above): no
+  `try/catch`, so a Gemini-side failure surfaced as an opaque 500. Fixed
+  with the same pattern — `try/catch` around the diff fetch + summarize
+  call, returns `{ error: message }` with a `502` on failure.
+  `components/PrList.tsx`'s `SummaryPanel` was also still on the old
+  generic-error pattern (`{status: 'error'}` with no message) while
+  `RequestChangesSection`/`MergeSection` already read `data.error` from the
+  response body — brought `SummaryPanel` in line with that pattern so the
+  real error text renders instead of a generic "Couldn't summarize."
+- **Gotcha, hit immediately**: `gemini-2.5-flash` returned a 404 —
+  "This model models/gemini-2.5-flash is no longer available to new users."
+  Google had moved the stable/recommended flash model on to
+  `gemini-3.5-flash` by the time this key was created. Confirmed fix:
+  switched the model string in `summarizePRReal` to `gemini-3.5-flash`.
+  Worth a quick check of `ai.google.dev/gemini-api/docs/models` if this
+  breaks again later — Google rotates which model IDs are available to new
+  keys.
+- Verified end-to-end in a real browser with `USE_REAL_SUMMARIZER=true`: a
+  real Gemini-generated summary rendered for a real PR diff (not a canned
+  one).
+- **Constraint to design around next session**: Selva's Gemini key is on
+  the free tier — 10 requests/minute, under 250 requests/day. Nothing in
+  the current code prevents duplicate calls (e.g. clicking "Summarize" on
+  the same PR twice re-hits the API both times, no caching of the result).
+  Before this feature is used more than a handful of times per session,
+  needs: (1) some form of caching so re-viewing a PR's summary doesn't
+  re-call Gemini, (2) a guard against rapid repeat clicks. Not built yet —
+  flagged so it isn't forgotten, not solved this session.
 - Started Supabase auth. Created a Supabase project
   (`hsnlaozzjkdgrivltiiz.supabase.co`); added `NEXT_PUBLIC_SUPABASE_URL` and
   `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` to `.env.local`. Installed
@@ -293,19 +328,21 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   of by a URL change.
 
 ## Immediate next step
-Auth is now fully round-tripped: `SignInButton` starts the OAuth redirect,
-`/auth/callback` exchanges the code for a session, `app/page.tsx` gates the
-PR list behind `supabase.auth.getUser()`, and `SignOutButton` clears the
-session and refreshes back to the sign-in prompt — all verified end-to-end
-in a real browser. No open auth work remains from the original plan.
+The AI summary feature now hits the real Gemini API (`gemini-3.5-flash`,
+gated behind `USE_REAL_SUMMARIZER`) — verified end-to-end in a real browser.
+The free-tier key is capped at 10 requests/minute and under 250/day, and
+nothing currently prevents duplicate calls (e.g. re-clicking "Summarize" on
+a PR you've already summarized just re-hits the API). Smallest next piece:
+cache each PR's summary (even something as simple as in-memory keyed by PR
+number + diff, or a DB table if Supabase is already in play for auth) so a
+PR is only ever summarized once per diff, plus some guard against rapid
+repeat clicks on the same button.
 
 Still open from earlier sessions: (1) request-changes' happy path (a
 successful `REQUEST_CHANGES` review actually filed) is still unverified solo
 — GitHub blocks that review type on your own PR, needs a PR from another
 account to test; (2) no in-app comment delete built (intentionally out of
-scope — only add if asked); (3) real Claude vs Gemini decision for the AI
-summary backend, deferred until the rest of the project is done (see Stack
-and Current progress notes above).
+scope — only add if asked).
 
 ## SDLC pipeline (not yet built)
 Planned 8 slash commands in `.claude/commands/`:

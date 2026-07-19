@@ -206,6 +206,33 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   the token itself), confirmed fixed by checking `/api/prs` returned 200
   again. Lesson for future appends to existing env/secret files: confirm a
   trailing newline exists first, don't assume it.
+- `components/SignInButton.tsx` — Client Component, "Sign in with GitHub"
+  button. Calls `supabase.auth.signInWithOAuth({ provider: 'github',
+  options: { redirectTo: \`${window.location.origin}/auth/callback\` } })`
+  via `lib/supabase/client.ts`, which redirects the browser to GitHub's
+  OAuth consent screen.
+- `app/auth/callback/route.ts` — `GET` route handler, the far end of the
+  OAuth redirect. Reads the one-time `code` GitHub appends to the redirect
+  URL, calls `supabase.auth.exchangeCodeForSession(code)` via
+  `lib/supabase/server.ts` (sets the session cookie server-side, since only
+  the server can do that securely), then redirects to `/`.
+- `app/page.tsx` — now gated. Calls `supabase.auth.getUser()` (server-side,
+  via `lib/supabase/server.ts`) before fetching anything; if there's no
+  user, renders just the sign-in prompt + `SignInButton` instead of the PR
+  list. Deliberately uses `getUser()` and not `getSession()` — `getSession()`
+  only reads whatever's in the cookie without checking it's still valid,
+  `getUser()` revalidates against Supabase's Auth server, which is what
+  Supabase recommends for any server-side render/data decision.
+- Verified end-to-end in a real browser: signed in with a real GitHub
+  account, redirected back through `/auth/callback` to `/`, landed on the
+  PR list with the now-redundant sign-in button hidden. Confirmed the
+  logged-out path too (fresh `curl` with no cookies shows the sign-in
+  prompt, not the PR list).
+- **Known gap, not yet built**: no sign-out button/flow exists, so there's
+  currently no way to get back to the logged-out state from the browser UI
+  once signed in (only by clearing the session cookie manually). Fine for
+  now since it wasn't asked for; worth building alongside any future
+  multi-user/session-switching work.
 
 ### Concepts covered so far
 - Server vs Client Components in the App Router: Server Components run only on
@@ -241,19 +268,31 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   cookie directly, the server reads it through Next's `cookies()` API. Same
   secret/no-secret, client/server boundary you already know from
   `GITHUB_TOKEN`, just applied to auth sessions instead of a repo token.
+- The OAuth redirect round trip: sign-in isn't a single request/response
+  like the mutating GitHub API calls elsewhere in this app. It's
+  browser → GitHub → back to our server: `SignInButton` (Client Component)
+  kicks off the redirect to GitHub; GitHub redirects back to
+  `/auth/callback?code=...` with a one-time code; the callback Route
+  Handler (server-only) trades that code for a real session. GitHub never
+  hands the session to the browser directly — only the opaque code — which
+  is what makes the flow resistant to tampering.
+- `getUser()` vs `getSession()` in Supabase's server helper: both read the
+  auth cookie, but `getSession()` trusts it as-is while `getUser()` calls
+  out to Supabase's Auth server to confirm the token's still valid. Use
+  `getUser()` anywhere the result decides what gets rendered or returned
+  (like the gate in `app/page.tsx`) — `getSession()` is only fine for cheap
+  optimistic checks where being wrong isn't a security issue.
 
 ## Immediate next step
-Supabase auth is partway wired: project created, env vars set, both
-`lib/supabase/client.ts` and `lib/supabase/server.ts` helpers written and
-type-checked, GitHub OAuth provider enabled in the Supabase dashboard (Client
-ID/Secret from a GitHub OAuth App). Nothing consumes this yet. Next actual
-step: build the "Sign in with GitHub" button (Client Component, calls
-`supabase.auth.signInWithOAuth({ provider: 'github' })` via
-`lib/supabase/client.ts`), the `/auth/callback` route that exchanges the
-OAuth code for a session, and gate `app/page.tsx` behind a logged-in check —
-one piece at a time, not all in one pass.
+GitHub sign-in is now fully wired: `SignInButton` starts the OAuth redirect,
+`/auth/callback` exchanges the code for a session, and `app/page.tsx` gates
+the PR list behind `supabase.auth.getUser()` — verified end-to-end in a real
+browser (see Current progress above). No sign-out flow exists yet (see
+"Known gap" note above) — smallest next piece if auth work continues: a
+"Sign out" button (Client Component, `supabase.auth.signOut()`) somewhere on
+the gated view.
 
-Also still open from earlier sessions: (1) request-changes' happy path (a
+Otherwise, still open from earlier sessions: (1) request-changes' happy path (a
 successful `REQUEST_CHANGES` review actually filed) is still unverified solo
 — GitHub blocks that review type on your own PR, needs a PR from another
 account to test; (2) no in-app comment delete built (intentionally out of

@@ -56,10 +56,35 @@ type SummaryState =
   | { status: 'error'; message: string }
   | { status: 'done'; summary: string };
 
+// Gemini free tier: 10 req/min. Shared across every SummaryPanel instance
+// (module scope, not component state) so bursts across different PRs are
+// caught, not just repeat clicks on one row. Resets on page reload — fine
+// for a single dev/demo session.
+const RATE_LIMIT = 10;
+const WINDOW_MS = 60_000;
+let requestTimestamps: number[] = [];
+
+function checkRateLimit(): { ok: true } | { ok: false; retryAfterSeconds: number } {
+  const now = Date.now();
+  requestTimestamps = requestTimestamps.filter((t) => now - t < WINDOW_MS);
+  if (requestTimestamps.length < RATE_LIMIT) return { ok: true };
+  const retryAfterSeconds = Math.ceil((WINDOW_MS - (now - requestTimestamps[0])) / 1000);
+  return { ok: false, retryAfterSeconds };
+}
+
 function SummaryPanel({ pr }: { pr: PullRequest }) {
   const [state, setState] = useState<SummaryState>({ status: 'idle' });
 
   async function handleSummarize() {
+    const rateCheck = checkRateLimit();
+    if (!rateCheck.ok) {
+      setState({
+        status: 'error',
+        message: `Rate limit reached — try again in ${rateCheck.retryAfterSeconds}s`,
+      });
+      return;
+    }
+    requestTimestamps.push(Date.now());
     setState({ status: 'loading' });
     try {
       const res = await fetch(`/api/prs/${pr.number}/summary`);

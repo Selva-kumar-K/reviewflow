@@ -45,7 +45,7 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   mock is the default — see Current progress below.
 - Vercel — deployment (not yet done)
 
-## Current progress (as of 2026-07-16)
+## Current progress (as of 2026-07-19)
 - `lib/github.ts` — `getPullRequests()`, a `cache()`-wrapped fetch against the
   GitHub REST API. Maps the raw GitHub response (`GitHubPullRequest`) into a
   clean `PullRequest` type: `number`, `title`, `author`, `authorAvatarUrl`,
@@ -350,17 +350,37 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   `/api/prs/1/summary` took ~8.7s (real Gemini round trip), second call for
   the same PR returned the identical summary in ~0.8s with no second
   Gemini call.
+- `components/PrList.tsx` — added a client-side rate-limit guard for
+  "Summarize", closing the other half of the constraint flagged last
+  session (caching handled duplicate calls on the *same* diff; this
+  handles bursts across *different* PRs). A module-level
+  `requestTimestamps: number[]` (not component state — shared across every
+  `SummaryPanel` instance in the list, same file-scope pattern as
+  `summaryCache` in `lib/summarize.ts`) tracks a sliding 60s window;
+  `checkRateLimit()` blocks and returns a `retryAfterSeconds` once 10
+  requests (Gemini's free-tier req/min ceiling) land in that window.
+  `handleSummarize` checks this before fetching and, if blocked, sets the
+  existing `error` state with a `Rate limit reached — try again in Ns`
+  message — no new UI needed, it reuses `SummaryPanel`'s error/Retry
+  rendering. Deliberately conservative: it counts every fetch attempt, not
+  confirmed Gemini calls, so a few requests that would've been server-side
+  cache hits still consume budget. Getting that precise would mean the API
+  route reporting back whether it was a cache hit; not worth the extra
+  moving parts unless the conservative version turns out to actually pinch.
+  Verified via `tsc --noEmit` only — not yet exercised in a real browser,
+  since tripping it needs 10+ distinct open PRs clicked within a minute,
+  which isn't practical on the current demo repo.
 
 ## Immediate next step
-Summary caching is done (see above) — re-viewing or re-clicking
-"Summarize" on an already-summarized diff no longer burns Gemini free-tier
-quota (10 req/min, <250/day), and concurrent duplicate calls collapse into
-one in-flight request. The cache is in-memory only, so it resets on server
-restart/redeploy — fine for a single dev/demo process, but worth noting if
-this ever runs across multiple serverless instances (each would have its
-own empty cache) or needs to survive restarts; a DB-backed cache (Supabase
-table, since auth is already in play) would be the next step if that ever
-matters. Not needed yet — don't build ahead of an actual problem.
+The two Gemini free-tier gaps flagged two sessions ago are both closed now:
+summary caching (re-viewing/re-clicking "Summarize" on an already-seen diff
+no longer re-hits Gemini) and the rate-limit guard above (bursts across
+many different PRs get blocked client-side instead of silently 429ing).
+Both are in-memory/module-level only, so they reset on reload — fine for a
+single dev/demo session, not for multiple serverless instances or surviving
+restarts. Worth revisiting only if this ever actually runs into that
+(a DB-backed cache, since auth/Supabase is already in play) — don't build
+ahead of an actual problem.
 
 Still open from earlier sessions: (1) request-changes' happy path (a
 successful `REQUEST_CHANGES` review actually filed) is still unverified solo

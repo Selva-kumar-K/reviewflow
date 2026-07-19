@@ -228,11 +228,12 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   PR list with the now-redundant sign-in button hidden. Confirmed the
   logged-out path too (fresh `curl` with no cookies shows the sign-in
   prompt, not the PR list).
-- **Known gap, not yet built**: no sign-out button/flow exists, so there's
-  currently no way to get back to the logged-out state from the browser UI
-  once signed in (only by clearing the session cookie manually). Fine for
-  now since it wasn't asked for; worth building alongside any future
-  multi-user/session-switching work.
+- `components/SignOutButton.tsx` — Client Component, mirrors `SignInButton`'s
+  shape. Calls `supabase.auth.signOut()` (via `lib/supabase/client.ts`), then
+  `router.refresh()`. Rendered next to the "Pull Requests" heading in
+  `app/page.tsx`, only on the gated (logged-in) view. Verified end-to-end in
+  a real browser: signed-in state showed the button, clicking it dropped
+  back to the sign-in prompt with no manual page reload.
 
 ### Concepts covered so far
 - Server vs Client Components in the App Router: Server Components run only on
@@ -282,17 +283,23 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   `getUser()` anywhere the result decides what gets rendered or returned
   (like the gate in `app/page.tsx`) — `getSession()` is only fine for cheap
   optimistic checks where being wrong isn't a security issue.
+- `router.refresh()` after a client-side auth change: `supabase.auth.signOut()`
+  clears the session cookie in the browser, but the Server Component in
+  `app/page.tsx` only re-runs `getUser()` on an actual navigation/refresh —
+  it doesn't watch client state. `router.refresh()` (from
+  `next/navigation`) re-runs the current route's Server Components against
+  the new cookie and re-renders, without a full page reload. Same
+  server/client split as the rest of auth, just triggered manually instead
+  of by a URL change.
 
 ## Immediate next step
-GitHub sign-in is now fully wired: `SignInButton` starts the OAuth redirect,
-`/auth/callback` exchanges the code for a session, and `app/page.tsx` gates
-the PR list behind `supabase.auth.getUser()` — verified end-to-end in a real
-browser (see Current progress above). No sign-out flow exists yet (see
-"Known gap" note above) — smallest next piece if auth work continues: a
-"Sign out" button (Client Component, `supabase.auth.signOut()`) somewhere on
-the gated view.
+Auth is now fully round-tripped: `SignInButton` starts the OAuth redirect,
+`/auth/callback` exchanges the code for a session, `app/page.tsx` gates the
+PR list behind `supabase.auth.getUser()`, and `SignOutButton` clears the
+session and refreshes back to the sign-in prompt — all verified end-to-end
+in a real browser. No open auth work remains from the original plan.
 
-Otherwise, still open from earlier sessions: (1) request-changes' happy path (a
+Still open from earlier sessions: (1) request-changes' happy path (a
 successful `REQUEST_CHANGES` review actually filed) is still unverified solo
 — GitHub blocks that review type on your own PR, needs a PR from another
 account to test; (2) no in-app comment delete built (intentionally out of

@@ -45,7 +45,7 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   mock is the default — see Current progress below.
 - Vercel — deployment (not yet done)
 
-## Current progress (as of 2026-07-19)
+## Current progress (as of 2026-07-25)
 - `lib/github.ts` — `getPullRequests()`, a `cache()`-wrapped fetch against the
   GitHub REST API. Maps the raw GitHub response (`GitHubPullRequest`) into a
   clean `PullRequest` type: `number`, `title`, `author`, `authorAvatarUrl`,
@@ -269,6 +269,15 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   `app/page.tsx`, only on the gated (logged-in) view. Verified end-to-end in
   a real browser: signed-in state showed the button, clicking it dropped
   back to the sign-in prompt with no manual page reload.
+- **Verified: request-changes happy path.** Opened a PR from a second GitHub
+  account (Selva as reviewer, not author) —
+  https://github.com/Selva-kumar-K/reviewflow/pull/2 — then clicked "Request
+  changes" on it from the dashboard while signed in as the primary account.
+  Got "Changes requested on GitHub." (success state), confirming
+  `requestChangesOnPullRequest`/`RequestChangesSection` work end-to-end now
+  that the same-author restriction (see earlier gotcha) doesn't apply. This
+  closes the last unverified mutating action — comment, request-changes, and
+  merge have all now been confirmed against the real GitHub API.
 
 ### Concepts covered so far
 - Server vs Client Components in the App Router: Server Components run only on
@@ -382,11 +391,11 @@ restarts. Worth revisiting only if this ever actually runs into that
 (a DB-backed cache, since auth/Supabase is already in play) — don't build
 ahead of an actual problem.
 
-Still open from earlier sessions: (1) request-changes' happy path (a
-successful `REQUEST_CHANGES` review actually filed) is still unverified solo
-— GitHub blocks that review type on your own PR, needs a PR from another
-account to test; (2) no in-app comment delete built (intentionally out of
-scope — only add if asked).
+Still open from earlier sessions: (1) the rate-limit guard has only been
+type-checked (`tsc --noEmit`), not exercised in a real browser — tripping it
+needs 10+ distinct PRs summarized within a minute, which the current demo
+repo doesn't have enough PRs to attempt yet; (2) no in-app comment delete
+built (intentionally out of scope — only add if asked).
 
 ## SDLC pipeline (not yet built)
 Planned 8 slash commands in `.claude/commands/`:

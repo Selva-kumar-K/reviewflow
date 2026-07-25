@@ -379,23 +379,34 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   Verified via `tsc --noEmit` only — not yet exercised in a real browser,
   since tripping it needs 10+ distinct open PRs clicked within a minute,
   which isn't practical on the current demo repo.
+- **Verified: rate-limit guard in a real browser.** Opened 10 throwaway PRs
+  against `master` (via the GitHub API, using the same token `lib/github.ts`
+  already uses — trivial one-line diffs to a scratch `RATE_LIMIT_TEST.md`
+  file) to get past the "not enough distinct PRs" blocker noted above.
+  Clicked "Summarize" across 10+ of them within 60 seconds from the
+  dashboard; the guard kicked in and showed `Rate limit reached — try again
+  in Ns` instead of firing an 11th Gemini call. Confirms `checkRateLimit`'s
+  module-level `requestTimestamps` genuinely gates across different
+  `SummaryPanel` instances, not just within one row. All 10 demo PRs closed
+  and their branches deleted afterward — no lasting trace on the repo.
 
 ## Immediate next step
-The two Gemini free-tier gaps flagged two sessions ago are both closed now:
-summary caching (re-viewing/re-clicking "Summarize" on an already-seen diff
-no longer re-hits Gemini) and the rate-limit guard above (bursts across
-many different PRs get blocked client-side instead of silently 429ing).
-Both are in-memory/module-level only, so they reset on reload — fine for a
-single dev/demo session, not for multiple serverless instances or surviving
+The two Gemini free-tier gaps flagged two sessions ago are both closed now
+*and* both verified in a real browser: summary caching (re-viewing/re-
+clicking "Summarize" on an already-seen diff no longer re-hits Gemini) and
+the rate-limit guard (bursts across many different PRs get blocked
+client-side instead of silently 429ing — confirmed above). Both are
+in-memory/module-level only, so they reset on reload — fine for a single
+dev/demo session, not for multiple serverless instances or surviving
 restarts. Worth revisiting only if this ever actually runs into that
 (a DB-backed cache, since auth/Supabase is already in play) — don't build
 ahead of an actual problem.
 
-Still open from earlier sessions: (1) the rate-limit guard has only been
-type-checked (`tsc --noEmit`), not exercised in a real browser — tripping it
-needs 10+ distinct PRs summarized within a minute, which the current demo
-repo doesn't have enough PRs to attempt yet; (2) no in-app comment delete
-built (intentionally out of scope — only add if asked).
+Still open from earlier sessions: no in-app comment delete built
+(intentionally out of scope — only add if asked). No other loose threads
+from prior sessions remain — next session can start fresh feature work
+(next candidate: real-time updates via Supabase, per the original project
+goals) or move on to the SDLC pipeline track below.
 
 ## SDLC pipeline (not yet built)
 Planned 8 slash commands in `.claude/commands/`:

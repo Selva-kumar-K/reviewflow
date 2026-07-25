@@ -278,6 +278,93 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   that the same-author restriction (see earlier gotcha) doesn't apply. This
   closes the last unverified mutating action — comment, request-changes, and
   merge have all now been confirmed against the real GitHub API.
+- **Real-time PR updates, built end-to-end.** The PR list moved from
+  "fetch live from GitHub on every page load" to "GitHub webhook feeds a
+  Supabase table, which the browser subscribes to via Supabase Realtime" —
+  closing the last two items ("webhooks", "real-time updates") from the
+  original project goals list.
+  - New `pull_requests` table in Supabase (SQL run by hand in the dashboard
+    SQL editor — no CLI/migrations in this project): `number` (PK, GitHub's
+    own PR number — safe since this is single-repo), `title`, `author`,
+    `author_avatar_url`, `state`, `is_merged`, `created_at`, `url`. RLS
+    enabled with a single `select` policy for the `authenticated` role — no
+    write policy, since the only writer bypasses RLS entirely (next point).
+  - `lib/supabase/admin.ts` — a **third** Supabase client, `createAdminClient()`,
+    built from `@supabase/supabase-js`'s plain `createClient` (not the
+    `@supabase/ssr` browser/server pair already in `lib/supabase/`) using a
+    new `SUPABASE_SERVICE_ROLE_KEY` env var. Bypasses RLS entirely — server-only,
+    never imported from a Client Component. Named differently from the other
+    two files' `createClient` exports on purpose, so it can't be grabbed by
+    accident in place of the session-bound ones.
+  - `lib/pull-requests.ts` — new `PullRequestRow` type (the table's snake_case
+    shape) plus `mapRowToPullRequest()`, converting a row into the existing
+    camelCase `PullRequest` type from `lib/github.ts`. Shared by both the
+    server read (`page.tsx`) and the client-side realtime handler
+    (`PrList.tsx`) so the mapping isn't duplicated.
+  - `app/api/webhooks/github/route.ts` — new `POST` handler. Reads the raw
+    request body via `request.text()` *before* any JSON parsing (required —
+    HMAC verification has to run over the exact bytes GitHub signed), verifies
+    GitHub's `X-Hub-Signature-256` header with `crypto.createHmac` +
+    `crypto.timingSafeEqual` against a new `GITHUB_WEBHOOK_SECRET` env var,
+    checks `X-GitHub-Event === 'pull_request'`, then upserts one row via the
+    admin client. No `action`-based filtering — every `pull_request` event
+    (opened/synchronize/closed/edited/etc.) carries the full object, so a
+    blanket upsert stays correct. Returns 401 on a bad signature (not this
+    codebase's usual 502-for-everything — that convention means "GitHub, as
+    *callee*, failed"; here GitHub is the *caller*, so a bad signature is an
+    unauthorized request, not an upstream failure).
+  - `app/page.tsx` — swapped from `getPullRequests()` (live GitHub) to
+    `supabase.from('pull_requests').select('*')`, so the table is now the one
+    source of truth both the first paint *and* the realtime subscription
+    agree on. `getPullRequests()` itself is kept (unused for the main list
+    now, but still needed for backfill/future resync tooling) — deliberately
+    not deleted.
+  - `components/PrList.tsx` — `prs` is now local `useState`, seeded once from
+    the server-rendered prop (no resync effect — see inline comment on why
+    that's deliberate), kept fresh by a `useEffect` that subscribes to
+    `supabase.channel(...).on('postgres_changes', { event: '*', schema:
+    'public', table: 'pull_requests' }, ...)` and merges each changed row in
+    by `number`. Unsubscribes via `supabase.removeChannel()` on cleanup.
+  - Backfill: a temporary `app/api/admin/backfill/route.ts` (auth-gated GET,
+    reused `getPullRequests()` + the admin client to seed the table with the
+    12 PRs that already existed before any webhook could have fired for
+    them), hit once, confirmed via the Supabase table editor, then deleted —
+    not left in the codebase.
+  - **Gotcha, found the hard way**: after wiring the subscription, the
+    dashboard only ever picked up changes on a manual refresh — never live.
+    First suspect was a realtime-auth timing race (subscribing before the
+    browser client finishes async-loading the session from cookies would
+    join the channel as `anon`, which the RLS `select` policy would then
+    silently block forever — no error, events just never arrive). Added an
+    explicit `await supabase.auth.getSession()` + `supabase.realtime.setAuth()`
+    before subscribing as a real defensive fix (kept), but it didn't fix this
+    specific symptom — console logging showed the session *was* found and the
+    channel *did* report `SUBSCRIBED`, yet zero `postgres_changes` payloads
+    ever arrived. Actual root cause: the `alter publication supabase_realtime
+    add table public.pull_requests` line from the setup SQL hadn't actually
+    taken effect — checking **Database → Publications → `supabase_realtime`**
+    in the dashboard showed `pull_requests` toggled *off*. Toggling it on
+    there (equivalent to re-running that SQL line) fixed it immediately —
+    confirmed live in the browser with a real GitHub-triggered update.
+    Lesson: don't just trust that a multi-statement SQL block fully applied —
+    check the Publications page directly if realtime events don't show up
+    despite `SUBSCRIBED` + a valid session.
+  - **Local testing**: GitHub webhooks need a public URL; this project isn't
+    deployed yet. Used `cloudflared tunnel --url http://localhost:3000` (via
+    `winget install Cloudflare.cloudflared`) instead of ngrok — no account/
+    signup needed for a quick tunnel, unlike ngrok's current free tier.
+    Registered a real webhook on the repo pointed at the tunnel's
+    `*.trycloudflare.com` URL, content type `application/json`, secret =
+    `GITHUB_WEBHOOK_SECRET`, event = "Pull requests" only. Verified via
+    GitHub's own Recent Deliveries log (confirmed the `ping` event landed
+    first, as GitHub always sends on webhook creation, correctly returning
+    `{ skipped: true }` since it's not a `pull_request` event) and then a
+    real test PR open + edit, both of which correctly upserted into the
+    table and pushed live to the browser tab with no refresh. Tunnel closed
+    and stopped after verification — the webhook on GitHub still points at
+    that now-dead URL, so it'll just fail silently until either a fresh
+    tunnel is stood up or the app is deployed to a real domain (whichever
+    happens first should replace this webhook's payload URL).
 
 ### Concepts covered so far
 - Server vs Client Components in the App Router: Server Components run only on
@@ -389,24 +476,60 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   module-level `requestTimestamps` genuinely gates across different
   `SummaryPanel` instances, not just within one row. All 10 demo PRs closed
   and their branches deleted afterward — no lasting trace on the repo.
+- Supabase Realtime only watches **your own Postgres tables** (via
+  `postgres_changes` on a publication) or broadcast channels — it has no
+  built-in awareness of GitHub. "Real-time PR updates" therefore isn't a
+  single feature, it's a pipeline: GitHub webhook → Postgres table → realtime
+  subscription. Nothing about Realtime itself talks to GitHub; the webhook is
+  the only thing that does, and the table is what decouples the two.
+- Two independent gates control whether a realtime event reaches the
+  browser, and both have to be right: (1) RLS on the table (does this row's
+  `select` policy allow the connecting role to read it?) and (2) publication
+  membership (`alter publication supabase_realtime add table ...`, or the
+  equivalent toggle in Database → Publications — is this table's WAL activity
+  being streamed to Realtime at all?). A channel can report `SUBSCRIBED` with
+  zero errors even when one of these is missing — the failure is silent, not
+  an exception, which is what made this session's bug hard to find.
+- A service-role client is a *third* kind of Supabase client, distinct from
+  the browser/server pair used for user sessions. The two session-bound
+  clients (`lib/supabase/client.ts`, `lib/supabase/server.ts`) answer "is
+  this particular signed-in user allowed to do this," gated by RLS. The
+  admin client (`lib/supabase/admin.ts`) answers nothing — it bypasses RLS
+  outright, which is correct for a webhook handler (no user is signed in
+  when GitHub calls it) but means it must never be reachable from browser
+  code.
+- Verifying a webhook signature has to happen against the *raw bytes* the
+  sender signed, not a re-serialized version of the parsed body — which is
+  why the handler calls `request.text()` and holds onto that exact string
+  for both the HMAC check and the later `JSON.parse`, rather than parsing
+  JSON first and re-stringifying for verification.
 
 ## Immediate next step
-The two Gemini free-tier gaps flagged two sessions ago are both closed now
-*and* both verified in a real browser: summary caching (re-viewing/re-
-clicking "Summarize" on an already-seen diff no longer re-hits Gemini) and
-the rate-limit guard (bursts across many different PRs get blocked
-client-side instead of silently 429ing — confirmed above). Both are
-in-memory/module-level only, so they reset on reload — fine for a single
-dev/demo session, not for multiple serverless instances or surviving
-restarts. Worth revisiting only if this ever actually runs into that
-(a DB-backed cache, since auth/Supabase is already in play) — don't build
-ahead of an actual problem.
+Real-time PR updates (the last item from the original project goals list)
+are built and verified end-to-end: webhook → Supabase table → live browser
+update, confirmed with a real GitHub-delivered event, not just a simulated
+one. One loose end from that work: the GitHub webhook's payload URL still
+points at a cloudflared tunnel that's since been stopped, so deliveries will
+fail until either a fresh tunnel is stood up for further local testing, or
+(better) the app gets deployed and the webhook's payload URL is updated to
+point at the real domain instead. Worth doing whichever of those comes up
+naturally next, not urgent on its own.
 
-Still open from earlier sessions: no in-app comment delete built
-(intentionally out of scope — only add if asked). No other loose threads
-from prior sessions remain — next session can start fresh feature work
-(next candidate: real-time updates via Supabase, per the original project
-goals) or move on to the SDLC pipeline track below.
+Also worth a look next session, lower priority: `lib/supabase/server.ts` has
+had a comment since the auth work — "Middleware (added later) will refresh
+the session cookie instead" — but no `middleware.ts` has ever been added.
+Hasn't caused a confirmed bug yet (the browser's realtime session and the
+server's cookie session happened to stay in sync during this session's
+testing), but it's a real gap: a stale server-side cookie could bounce
+`page.tsx` to the signed-out view while other client-side state (like the
+realtime subscription) is still working fine, which would look like a
+confusing bug rather than what it actually is.
+
+Earlier gaps are all closed: the two Gemini free-tier gaps (summary caching,
+rate-limit guard) were both closed and verified two sessions ago. No in-app
+comment delete built (intentionally out of scope — only add if asked). Next
+session can pick either the deployment/webhook loose end above, the
+middleware gap, fresh feature work, or the SDLC pipeline track below.
 
 ## SDLC pipeline (not yet built)
 Planned 8 slash commands in `.claude/commands/`:

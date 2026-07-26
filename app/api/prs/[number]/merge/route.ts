@@ -1,4 +1,5 @@
 import { mergePullRequest, type MergeMethod } from '@/lib/github';
+import { requireUser } from '@/lib/supabase/server';
 
 const VALID_METHODS: MergeMethod[] = ['merge', 'squash', 'rebase'];
 
@@ -6,6 +7,10 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ number: string }> },
 ) {
+  if (!(await requireUser())) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { number } = await params;
   const { mergeMethod } = (await request.json()) as { mergeMethod?: string };
 

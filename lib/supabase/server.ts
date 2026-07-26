@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import type { User } from '@supabase/supabase-js';
 
 export async function createClient() {
   const cookieStore = await cookies();
@@ -26,4 +27,15 @@ export async function createClient() {
       },
     }
   );
+}
+
+// Route handlers under app/api/prs/** are called directly by the browser and
+// aren't covered by the page-level auth gate in app/page.tsx — each one must
+// check for a signed-in user itself before touching GitHub/Gemini.
+export async function requireUser(): Promise<User | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user;
 }

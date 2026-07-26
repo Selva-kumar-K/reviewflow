@@ -43,9 +43,10 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   Claude since Selva doesn't have a card on file for Anthropic billing and
   Gemini's free tier needs none. Real call is gated behind an env flag,
   mock is the default — see Current progress below.
-- Vercel — deployment (not yet done)
+- Vercel — deployment. Live at https://reviewflow-azure.vercel.app (project
+  `selva-kumar-ks-projects/reviewflow`), see Current progress below.
 
-## Current progress (as of 2026-07-25)
+## Current progress (as of 2026-07-26)
 - `lib/github.ts` — `getPullRequests()`, a `cache()`-wrapped fetch against the
   GitHub REST API. Maps the raw GitHub response (`GitHubPullRequest`) into a
   clean `PullRequest` type: `number`, `title`, `author`, `authorAvatarUrl`,
@@ -504,32 +505,79 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   for both the HMAC check and the later `JSON.parse`, rather than parsing
   JSON first and re-stringifying for verification.
 
-## Immediate next step
-Real-time PR updates (the last item from the original project goals list)
-are built and verified end-to-end: webhook → Supabase table → live browser
-update, confirmed with a real GitHub-delivered event, not just a simulated
-one. One loose end from that work: the GitHub webhook's payload URL still
-points at a cloudflared tunnel that's since been stopped, so deliveries will
-fail until either a fresh tunnel is stood up for further local testing, or
-(better) the app gets deployed and the webhook's payload URL is updated to
-point at the real domain instead. Worth doing whichever of those comes up
-naturally next, not urgent on its own.
+## Current progress, continued (2026-07-26 session)
+- **Security fix, found while prepping to deploy publicly**: every route
+  under `app/api/prs/**` (`comment`, `request-changes`, `merge`, `summary`,
+  `comments`, and the plain `prs` list) had no auth check of its own.
+  `app/page.tsx` gates the *page view* with `supabase.auth.getUser()`, but
+  the API routes it and `PrList.tsx`'s client-side fetches call were reachable
+  directly by anyone — meaning an unauthenticated visitor to a public URL
+  could merge/comment/request-changes on the real repo via `GITHUB_TOKEN`, or
+  burn Gemini quota through `summary`, without ever signing in. Harmless
+  while the app only existed on localhost; a real hole the moment it's
+  public. Fixed by adding a shared `requireUser()` helper (in
+  `lib/supabase/server.ts`, same `getUser()` call `page.tsx` already used)
+  and calling it at the top of all six routes, returning 401 if there's no
+  session. `app/api/webhooks/github/route.ts` deliberately excluded — it's
+  gated by HMAC signature verification instead, since GitHub (not a signed-in
+  user) is the caller. Verified both locally (curl with no cookies → 401,
+  signed-in browser click-through → still works) and again against the live
+  Vercel deployment below.
+- **Deployed to Vercel — the last item from the original project goals
+  list.** Linked via `vercel link` to project
+  `selva-kumar-ks-projects/reviewflow` (Vercel's automatic GitHub-repo
+  connection failed silently — not investigated, not blocking, CLI deploys
+  work fine without it). Pushed the six required secrets
+  (`GITHUB_TOKEN`, `NEXT_PUBLIC_SUPABASE_URL`,
+  `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `GEMINI_API_KEY`,
+  `GITHUB_WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`) to the Production
+  environment via `vercel env add`. Deliberately did **not** set
+  `USE_REAL_SUMMARIZER` on Vercel — mock summarizer stays the default on the
+  public deployment, per the original cost-avoidance decision. Deployed with
+  `vercel --prod`; build succeeded, live at
+  https://reviewflow-azure.vercel.app. Verified with curl: page loads (200),
+  `/api/prs` correctly 401s with no session.
+- Closed the webhook loose end flagged last session: updated the GitHub
+  webhook's payload URL (Settings → Webhooks, done manually since the fine-
+  grained PAT lacks the separate `Webhooks` permission category — same
+  "permissions are siloed per category" pattern as the `Issues`/`Contents`
+  gotchas above, not worth widening the token's scope for a one-time URL
+  edit) from the dead cloudflared tunnel to
+  `https://reviewflow-azure.vercel.app/api/webhooks/github`. Verified live:
+  edited a real PR on GitHub, confirmed `POST /api/webhooks/github` in
+  `vercel logs` immediately after, confirmed the row upserted in the
+  Supabase `pull_requests` table.
+- Added the production URL (`https://reviewflow-azure.vercel.app/auth/callback`)
+  to Supabase's Auth → URL Configuration → Redirect URLs allow-list (it only
+  had `localhost` before). Without this, `signInWithOAuth`'s
+  `redirectTo: window.location.origin + '/auth/callback'` would resolve to
+  the production domain but Supabase would reject the callback as an
+  unrecognized redirect. Verified: signed in with GitHub on the live URL,
+  landed back on the PR list.
 
-Also worth a look next session, lower priority: `lib/supabase/server.ts` has
-had a comment since the auth work — "Middleware (added later) will refresh
-the session cookie instead" — but no `middleware.ts` has ever been added.
-Hasn't caused a confirmed bug yet (the browser's realtime session and the
-server's cookie session happened to stay in sync during this session's
-testing), but it's a real gap: a stale server-side cookie could bounce
-`page.tsx` to the signed-out view while other client-side state (like the
-realtime subscription) is still working fine, which would look like a
+## Immediate next step
+The deployment/webhook loose end from last session is now fully closed:
+live on Vercel, webhook repointed and verified with a real GitHub event,
+Supabase OAuth redirect updated and sign-in verified on the production URL.
+
+Still open, lower priority: `lib/supabase/server.ts` has had a comment since
+the auth work — "Middleware (added later) will refresh the session cookie
+instead" — but no `middleware.ts` has ever been added. Hasn't caused a
+confirmed bug yet, but it's a real gap: a stale server-side cookie could
+bounce `page.tsx` to the signed-out view while other client-side state (like
+the realtime subscription) is still working fine, which would look like a
 confusing bug rather than what it actually is.
 
-Earlier gaps are all closed: the two Gemini free-tier gaps (summary caching,
-rate-limit guard) were both closed and verified two sessions ago. No in-app
-comment delete built (intentionally out of scope — only add if asked). Next
-session can pick either the deployment/webhook loose end above, the
-middleware gap, fresh feature work, or the SDLC pipeline track below.
+Also unresolved from this session: Vercel's automatic GitHub-repo connection
+failed during `vercel link` ("Failed to connect ... to project") — CLI
+deploys work fine regardless, but it means no auto-deploy-on-push yet. Worth
+a look if push-to-deploy becomes wanted; not blocking anything today since
+deploys are a deliberate `vercel --prod` call, matching this project's
+"mutations are deliberate, not casual" pattern elsewhere.
+
+No in-app comment delete built (intentionally out of scope — only add if
+asked). Next session can pick the middleware gap, the GitHub-connection
+retry, fresh feature work, or the SDLC pipeline track below.
 
 ## SDLC pipeline (not yet built)
 Planned 8 slash commands in `.claude/commands/`:

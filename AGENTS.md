@@ -621,10 +621,24 @@ No open threads from prior sessions remain. No in-app comment delete built
 (intentionally out of scope — only add if asked). Next session can pick
 fresh feature work or the SDLC pipeline track below.
 
-## SDLC pipeline (not yet built)
-Planned 8 slash commands in `.claude/commands/`:
-`/requirements` → `/grill-requirements` → `/plan` → `/code` → `/review` →
-`/optimize` → `/qa` → `/teach`, each stage saving artifacts to `.claude/sdlc/`.
-Both directories are currently empty — this is a deferred track, worth setting
-up once more ad-hoc feature cycles have surfaced what process is actually
-needed, not before.
+## SDLC pipeline (built 2026-08-02)
+8 slash commands live in `.claude/commands/`: `/requirements` →
+`/grill-requirements` → `/plan` → `/code` → `/review` → `/optimize` →
+`/qa` → `/teach`. Each feature gets a kebab-case-slug directory under
+`.claude/sdlc/<slug>/` with one artifact per stage (`01-requirements.md`
+through `08-teach.md`) — see `.claude/sdlc/README.md` for the convention.
+Commands resume the most-recently-modified slug directory when run with no
+argument.
+
+Built specifically to drive the frontend redesign (current plain UI →
+modern, Lighthouse-optimized) as its first real workload, per Selva's
+framing: backend is solid, but presentation is what a recruiter actually
+sees, and the pipeline itself doubles as a second portfolio talking point
+("I built my own SDLC process") alongside giving `/teach` real material to
+work from for interview prep. `/optimize` specifically runs real Lighthouse
+audits against a production build (not dev-mode numbers) and records
+before/after scores — "Lighthouse score perfect" is meant to be a measured
+claim, not a vibe.
+
+Not yet run end-to-end on a real feature — next session should kick off
+`/requirements` for the frontend redesign.

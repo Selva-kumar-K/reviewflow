@@ -504,6 +504,13 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   why the handler calls `request.text()` and holds onto that exact string
   for both the HMAC check and the later `JSON.parse`, rather than parsing
   JSON first and re-stringifying for verification.
+- Why a Server Component can read but not write cookies, and what closes the
+  gap: Next only allows setting cookies from a Route Handler, Server Action,
+  or `proxy.ts` — not from a Server Component mid-render (that's what the
+  `try/catch` around `setAll` in `lib/supabase/server.ts` is silently
+  swallowing). `proxy.ts` runs before every request and is allowed to write
+  the response, which is what lets it refresh a near-expiry Supabase session
+  cookie on a long-lived tab without any Server Component needing to do it.
 
 ## Current progress, continued (2026-07-26 session)
 - **Security fix, found while prepping to deploy publicly**: every route
@@ -555,29 +562,58 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   unrecognized redirect. Verified: signed in with GitHub on the live URL,
   landed back on the PR list.
 
+## Current progress, continued (2026-08-02 session)
+- **Gotcha, quick diagnosis**: "Sign in with GitHub" started showing "site
+  can't be reached" — the browser was redirecting to
+  `https://hsnlaozzjkdgrivltiiz.supabase.co/auth/v1/authorize?...` and that
+  host wasn't resolving at all (`nslookup` → `NXDOMAIN`, even against
+  1.1.1.1). Root cause: the Supabase project had auto-paused (free tier
+  pauses after a week of inactivity), and a paused project's hostname drops
+  out of DNS entirely rather than serving a "paused" page — confirmed by
+  hitting Cloudflare's edge directly with `curl --resolve` and an explicit
+  IP, which returned `Project paused. Please unpause the project before
+  proceeding.` (HTTP 540) instead of a DNS error. Fixed by clicking
+  Restore/Unpause in the Supabase dashboard — no code changes involved, and
+  now confirmed working again by Selva in the browser.
+- **Closed the middleware gap flagged last session.** Added `proxy.ts` at
+  the project root — the file that refreshes the Supabase session cookie on
+  every request, so a Server Component read (which can't itself write a
+  refreshed cookie, see the `try/catch` in `lib/supabase/server.ts`) doesn't
+  end up looking at a stale one. **Gotcha, confirmed from the installed
+  docs, not training data**: this Next version (16.2.10) renamed
+  `middleware.ts` → `proxy.ts` (`export function proxy(request)` instead of
+  `export function middleware(request)`) — found in
+  `node_modules/next/dist/docs/01-app/01-getting-started/16-proxy.md`, since
+  Next 16 postdates training data. Same mechanism otherwise: standard
+  `@supabase/ssr` cookie-relay pattern (`createServerClient` reading from
+  `request.cookies`, writing to a fresh `NextResponse`), `matcher` excludes
+  `_next/static`, `_next/image`, `favicon.ico`. Updated the stale comment in
+  `lib/supabase/server.ts` ("Middleware (added later)...") to point at
+  `proxy.ts` instead.
+  - Verified: `tsc --noEmit` clean; dev server log confirms `proxy.ts` runs
+    on every request (`GET / 200 ... proxy.ts: 19ms`); behavior unchanged —
+    `/` still 200s, `/api/prs` still 401s when signed out.
+  - **Not yet verified**: an actual cookie refresh in a real signed-in
+    session (only observable near token expiry, not on a fresh sign-in) —
+    the Chrome extension wasn't connected this session, so no click-through
+    was possible. Selva is verifying this manually before it's committed.
+
 ## Immediate next step
-The deployment/webhook loose end from last session is now fully closed:
-live on Vercel, webhook repointed and verified with a real GitHub event,
-Supabase OAuth redirect updated and sign-in verified on the production URL.
+Selva is click-testing the `proxy.ts` change (session-refresh on a
+long-lived signed-in tab) before it gets committed — pick up here next
+session if it's still uncommitted, otherwise treat the middleware gap as
+closed.
 
-Still open, lower priority: `lib/supabase/server.ts` has had a comment since
-the auth work — "Middleware (added later) will refresh the session cookie
-instead" — but no `middleware.ts` has ever been added. Hasn't caused a
-confirmed bug yet, but it's a real gap: a stale server-side cookie could
-bounce `page.tsx` to the signed-out view while other client-side state (like
-the realtime subscription) is still working fine, which would look like a
-confusing bug rather than what it actually is.
-
-Also unresolved from this session: Vercel's automatic GitHub-repo connection
-failed during `vercel link` ("Failed to connect ... to project") — CLI
-deploys work fine regardless, but it means no auto-deploy-on-push yet. Worth
-a look if push-to-deploy becomes wanted; not blocking anything today since
-deploys are a deliberate `vercel --prod` call, matching this project's
+Still unresolved from the 2026-07-26 session: Vercel's automatic GitHub-repo
+connection failed during `vercel link` ("Failed to connect ... to project")
+— CLI deploys work fine regardless, but it means no auto-deploy-on-push yet.
+Worth a look if push-to-deploy becomes wanted; not blocking anything today
+since deploys are a deliberate `vercel --prod` call, matching this project's
 "mutations are deliberate, not casual" pattern elsewhere.
 
 No in-app comment delete built (intentionally out of scope — only add if
-asked). Next session can pick the middleware gap, the GitHub-connection
-retry, fresh feature work, or the SDLC pipeline track below.
+asked). Next session can pick the GitHub-connection retry, fresh feature
+work, or the SDLC pipeline track below.
 
 ## SDLC pipeline (not yet built)
 Planned 8 slash commands in `.claude/commands/`:

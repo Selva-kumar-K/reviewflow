@@ -21,7 +21,7 @@ export async function createClient() {
           } catch {
             // Called from a Server Component render — Next.js only allows
             // setting cookies from a Route Handler or Server Action.
-            // Middleware (added later) will refresh the session cookie instead.
+            // proxy.ts refreshes the session cookie on every request instead.
           }
         },
       },

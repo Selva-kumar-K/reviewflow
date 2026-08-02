@@ -597,23 +597,29 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
     session (only observable near token expiry, not on a fresh sign-in) —
     the Chrome extension wasn't connected this session, so no click-through
     was possible. Selva is verifying this manually before it's committed.
+  - Update: click-testing wrapped up and the `proxy.ts` commit landed
+    (`f2c47c6`). Middleware gap treated as closed.
+- **Fixed: Vercel's automatic GitHub-repo connection**, unresolved since
+  2026-07-26. Root cause (per Vercel's own docs/community threads, confirmed
+  by reproducing the failure with `vercel git connect` after installing the
+  Vercel CLI locally): the Vercel GitHub App's repository access on the
+  GitHub side didn't include `reviewflow` — `vercel link`/`vercel git
+  connect` can authenticate fine but still can't see a repo the App wasn't
+  granted access to, and that failure mode looks identical to a typo'd repo
+  name. Fixed manually at
+  https://github.com/settings/installations → Vercel → Configure →
+  added `reviewflow` under repository access. `vercel git connect` then
+  succeeded (`Connected`). Verified end-to-end: pushed the pending
+  `proxy.ts` commit to `origin/day-3`, `vercel ls` showed a new Preview
+  deployment start building ~7s later — push-to-deploy is now live, no
+  `vercel --prod` needed for preview builds going forward (production
+  promotion is still a deliberate call, per this project's "mutations are
+  deliberate" pattern).
 
 ## Immediate next step
-Selva is click-testing the `proxy.ts` change (session-refresh on a
-long-lived signed-in tab) before it gets committed — pick up here next
-session if it's still uncommitted, otherwise treat the middleware gap as
-closed.
-
-Still unresolved from the 2026-07-26 session: Vercel's automatic GitHub-repo
-connection failed during `vercel link` ("Failed to connect ... to project")
-— CLI deploys work fine regardless, but it means no auto-deploy-on-push yet.
-Worth a look if push-to-deploy becomes wanted; not blocking anything today
-since deploys are a deliberate `vercel --prod` call, matching this project's
-"mutations are deliberate, not casual" pattern elsewhere.
-
-No in-app comment delete built (intentionally out of scope — only add if
-asked). Next session can pick the GitHub-connection retry, fresh feature
-work, or the SDLC pipeline track below.
+No open threads from prior sessions remain. No in-app comment delete built
+(intentionally out of scope — only add if asked). Next session can pick
+fresh feature work or the SDLC pipeline track below.
 
 ## SDLC pipeline (not yet built)
 Planned 8 slash commands in `.claude/commands/`:

@@ -1,4 +1,4 @@
-import { PrList } from '@/components/PrList';
+import { PrList } from '@/components/pr-list/PrList';
 import { SignInButton } from '@/components/SignInButton';
 import { SignOutButton } from '@/components/SignOutButton';
 import { createClient } from '@/lib/supabase/server';

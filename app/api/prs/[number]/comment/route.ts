@@ -1,9 +1,14 @@
 import { commentOnPullRequest } from '@/lib/github';
+import { requireUser } from '@/lib/supabase/server';
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ number: string }> },
 ) {
+  if (!(await requireUser())) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { number } = await params;
   const { body } = (await request.json()) as { body: string };
 

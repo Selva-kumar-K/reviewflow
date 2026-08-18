@@ -1,5 +1,7 @@
-import { requestChangesOnPullRequest } from '@/lib/github';
+import { mergePullRequest, type MergeMethod } from '@/lib/github';
 import { requireUser } from '@/lib/supabase/server';
+
+const VALID_METHODS: MergeMethod[] = ['merge', 'squash', 'rebase'];
 
 export async function POST(
   request: Request,
@@ -10,14 +12,14 @@ export async function POST(
   }
 
   const { number } = await params;
-  const { body } = (await request.json()) as { body: string };
+  const { mergeMethod } = (await request.json()) as { mergeMethod?: string };
 
-  if (!body || body.trim().length === 0) {
-    return Response.json({ error: 'Review body cannot be empty' }, { status: 400 });
-  }
+  const method = VALID_METHODS.includes(mergeMethod as MergeMethod)
+    ? (mergeMethod as MergeMethod)
+    : 'squash';
 
   try {
-    await requestChangesOnPullRequest(Number(number), body);
+    await mergePullRequest(Number(number), method);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'GitHub request failed';
     return Response.json({ error: message }, { status: 502 });

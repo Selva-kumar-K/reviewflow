@@ -84,7 +84,7 @@ export function CommentsAction({ pr }: { pr: PullRequest }) {
       <Alert variant="destructive" className="w-full">
         <AlertDescription>
           Couldn&apos;t load comments.{' '}
-          <button type="button" onClick={loadComments} className="font-medium underline">
+          <button type="button" onClick={loadComments} className="cursor-pointer font-medium underline">
             Retry
           </button>
         </AlertDescription>

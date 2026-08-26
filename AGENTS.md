@@ -616,6 +616,39 @@ Portfolio project for Selva (1 year frontend exp) to demonstrate:
   promotion is still a deliberate call, per this project's "mutations are
   deliberate" pattern).
 
+## Current progress, continued (2026-08-20 session)
+- **Repeat of the 2026-08-02 Supabase auto-pause gotcha.** "Sign in with
+  GitHub" broke again with the same symptom (`hsnlaozzjkdgrivltiiz.supabase.co`
+  NXDOMAIN). Confirmed via `nslookup` + `curl --resolve` against Cloudflare's
+  edge (540 "Project paused") — same root cause as before, not a code
+  regression. Fixed by unpausing the project in the Supabase dashboard, no
+  code changes. Verified end-to-end in a real browser: full OAuth round trip
+  completed, landed back on `/` with "Sign out" visible and the live PR list
+  loaded. Worth remembering this will keep recurring on the free tier after
+  ~a week of inactivity — check DNS resolution first before assuming a code
+  bug when sign-in "just stops working."
+- **`GITHUB_TOKEN` had expired/was revoked** (separately from the Supabase
+  issue above) — `GET /user` with the old token returned `401 Bad
+  credentials`. Selva generated a replacement fine-grained PAT. Summarize
+  then worked (diff fetch only needs read access), but "Show comments" →
+  post surfaced a `403 Resource not accessible by personal access token`
+  on `POST issues/{n}/comments` — the new token's first permission edit
+  hadn't actually saved (checked the token's settings page directly:
+  `Contents`/`Issues`/`Pull requests` still showed Read-only after Selva
+  said he'd updated them). Fixed by re-opening
+  `github.com/settings/personal-access-tokens/<id>` → Edit next to "Access
+  on <user>" → set `Contents`, `Issues`, and `Pull requests` to **Read and
+  write** → clicked **Update** (the actual save action; editing the
+  dropdowns alone doesn't persist anything). Verified with a direct `curl`
+  POST (403 → 201) and then again through the dashboard's own comment
+  form — both landed as real comments on PR #13. Same permission-siloing
+  behavior already documented above from 2026-07-26, now confirmed to also
+  apply to *editing* an existing fine-grained PAT's permissions, not just
+  setting them at creation: the edit form can be filled out and look
+  correct on screen without being saved — always re-open the token's page
+  after an edit to confirm the change actually stuck before assuming a fix
+  worked.
+
 ## Immediate next step
 No open threads from prior sessions remain. No in-app comment delete built
 (intentionally out of scope — only add if asked). Next session can pick

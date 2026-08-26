@@ -69,7 +69,10 @@ export function SummarizeAction({ pr }: { pr: PullRequest }) {
 
   if (state.status === 'loading') {
     return (
-      <p className="w-full text-sm text-black/60 dark:text-white/60">Summarizing…</p>
+      <p className="flex w-full items-center gap-1.5 text-sm text-black/60 dark:text-white/60">
+        <Sparkles className="size-4 animate-pulse" />
+        <span className="animate-pulse">Summarizing…</span>
+      </p>
     );
   }
 
@@ -78,7 +81,7 @@ export function SummarizeAction({ pr }: { pr: PullRequest }) {
       <Alert variant="destructive" className="w-full">
         <AlertDescription>
           {state.message}{' '}
-          <button type="button" onClick={handleSummarize} className="font-medium underline">
+          <button type="button" onClick={handleSummarize} className="cursor-pointer font-medium underline">
             Retry
           </button>
         </AlertDescription>

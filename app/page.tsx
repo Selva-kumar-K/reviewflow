@@ -1,8 +1,16 @@
+import { GitPullRequest, ListChecks, Sparkles, CircleCheckBig } from 'lucide-react';
 import { PrList } from '@/components/pr-list/PrList';
 import { SignInButton } from '@/components/SignInButton';
 import { SignOutButton } from '@/components/SignOutButton';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { createClient } from '@/lib/supabase/server';
 import { mapRowToPullRequest, type PullRequestRow } from '@/lib/pull-requests';
+
+const FEATURES = [
+  { icon: ListChecks, text: 'See every open PR across your repo in one view' },
+  { icon: Sparkles, text: 'AI-generated summaries of each diff' },
+  { icon: CircleCheckBig, text: 'Merge, comment, or request changes without leaving the page' },
+];
 
 // Note: lib/github.ts's getPullRequests() (live GitHub fetch) is no longer
 // used here — the `pull_requests` Supabase table, kept in sync by the
@@ -17,12 +25,30 @@ export default async function Home() {
 
   if (!user) {
     return (
-      <main className="mx-auto flex w-full max-w-3xl flex-col items-center gap-4 px-4 py-20 text-center">
-        <h1 className="text-xl font-semibold">ReviewFlow</h1>
-        <p className="text-sm text-gray-500">
-          Sign in to see open pull requests.
-        </p>
-        <SignInButton />
+      <main className="flex min-h-svh w-full items-center justify-center px-4 py-16">
+        <Card className="w-full max-w-sm">
+          <CardHeader className="items-center gap-2 pb-0 text-center">
+            <div className="flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <GitPullRequest className="size-5" />
+            </div>
+            <CardTitle className="text-lg">ReviewFlow</CardTitle>
+            <CardDescription>
+              A single dashboard for reviewing, summarizing, and acting on
+              pull requests.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <ul className="flex flex-col gap-2">
+              {FEATURES.map(({ icon: Icon, text }) => (
+                <li key={text} className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <Icon className="mt-0.5 size-4 shrink-0 text-foreground/70" />
+                  {text}
+                </li>
+              ))}
+            </ul>
+            <SignInButton />
+          </CardContent>
+        </Card>
       </main>
     );
   }

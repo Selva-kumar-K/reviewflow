@@ -1,11 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PullRequest } from '@/lib/github';
 import { createClient } from '@/lib/supabase/client';
 import { mapRowToPullRequest, type PullRequestRow } from '@/lib/pull-requests';
 import { FilterTabs, matchesFilter, type Filter } from './FilterTabs';
+import { NewPrBanner, type NewArrival } from './NewPrBanner';
 import { PrCard } from './PrCard';
+
+// How long the "new PR arrived" banner stays up before auto-dismissing.
+const NEW_PR_BANNER_DURATION_MS = 10 * 1000;
 
 export function PrList({ prs: initialPrs }: { prs: PullRequest[] }) {
   // Seeded once from the server-rendered prop, then kept fresh by the
@@ -16,6 +20,23 @@ export function PrList({ prs: initialPrs }: { prs: PullRequest[] }) {
   // realtime update.
   const [prs, setPrs] = useState(initialPrs);
   const [filter, setFilter] = useState<Filter>('all');
+  const [newArrival, setNewArrival] = useState<NewArrival | null>(null);
+  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function dismissNewArrival() {
+    setNewArrival(null);
+    if (dismissTimer.current) clearTimeout(dismissTimer.current);
+  }
+
+  // Called on every realtime INSERT (a brand-new PR row, not an update to an
+  // existing one). Bumps the count if a banner is already showing rather than
+  // replacing it, and restarts the 3-minute auto-dismiss clock so a fresh
+  // arrival doesn't get cut off mid-display by an earlier one's timer.
+  function announceNewArrival(pr: PullRequest) {
+    setNewArrival((current) => ({ pr, count: (current?.count ?? 0) + 1 }));
+    if (dismissTimer.current) clearTimeout(dismissTimer.current);
+    dismissTimer.current = setTimeout(() => setNewArrival(null), NEW_PR_BANNER_DURATION_MS);
+  }
 
   useEffect(() => {
     const supabase = createClient();
@@ -46,6 +67,10 @@ export function PrList({ prs: initialPrs }: { prs: PullRequest[] }) {
               next[idx] = updated;
               return next;
             });
+            // eventType (not array-index membership) is the reliable signal
+            // for "this is a new PR" vs. "an existing PR's state changed" —
+            // e.g. a PR getting merged is an UPDATE, not an INSERT.
+            if (payload.eventType === 'INSERT') announceNewArrival(updated);
           }
         )
         .subscribe();
@@ -54,6 +79,7 @@ export function PrList({ prs: initialPrs }: { prs: PullRequest[] }) {
     return () => {
       cancelled = true;
       if (channel) supabase.removeChannel(channel);
+      if (dismissTimer.current) clearTimeout(dismissTimer.current);
     };
   }, []);
 
@@ -61,6 +87,7 @@ export function PrList({ prs: initialPrs }: { prs: PullRequest[] }) {
 
   return (
     <>
+      {newArrival && <NewPrBanner arrival={newArrival} onDismiss={dismissNewArrival} />}
       <FilterTabs filter={filter} onChange={setFilter} />
       <ul className="mt-6 space-y-4" aria-live="polite">
         {filteredPrs.map((pr) => (
